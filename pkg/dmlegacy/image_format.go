@@ -1,6 +1,7 @@
 package dmlegacy
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -148,7 +149,7 @@ func resizeToMinimum(img *api.Image) (err error) {
 // containing a filesystem and shrinks the filesystem to that size
 func getMinSize(p string) (minSize int64, err error) {
 	// Loop mount the image for resize2fs
-	imageLoop, err := newLoopDev(p, false)
+	imageLoop, err := newLoopDev(context.Background(), p, false)
 	if err != nil {
 		return
 	}

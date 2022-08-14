@@ -1,31 +1,53 @@
 package dmlegacy
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os/exec"
 	"path"
 	"strconv"
-
-	losetup "github.com/freddierice/go-losetup"
 )
 
 // loopDevice is a helper struct for handling loopback devices for devicemapper
 type loopDevice struct {
-	losetup.Device
+	path string
 }
 
-func newLoopDev(file string, readOnly bool) (*loopDevice, error) {
-	dev, err := losetup.Attach(file, 0, readOnly)
+func newLoopDev(ctx context.Context, file string, readOnly bool) (*loopDevice, error) {
+	args := []string{
+		"--find",
+		"--show",
+		file,
+	}
+	if readOnly {
+		args = append(args, "--read-only")
+	}
+	cmd := exec.CommandContext(ctx, "losetup", args...)
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup loop device for %q: %v", file, err)
 	}
 
-	return &loopDevice{dev}, nil
+	// Strip of newline at the end.
+	return &loopDevice{path: string(out)[:len(out)-1]}, nil
+}
+
+func (ld *loopDevice) Path() string {
+	return ld.path
+}
+
+func (ld *loopDevice) Detach() error {
+	cmd := exec.CommandContext(context.Background(), "losetup", "--detach", ld.path)
+	_, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to detach loop device %q: %v", ld.path, err)
+	}
+	return nil
 }
 
 func (ld *loopDevice) Size512K() (uint64, error) {
-	data, err := ioutil.ReadFile(path.Join("/sys/class/block", path.Base(ld.Device.Path()), "size"))
+	data, err := ioutil.ReadFile(path.Join("/sys/class/block", path.Base(ld.path), "size"))
 	if err != nil {
 		return 0, err
 	}

@@ -1,12 +1,7 @@
 package dmlegacy
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-
-	"github.com/nightlyone/lockfile"
 
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/util"
@@ -15,25 +10,12 @@ import (
 // dmsetupNotFound is the error message when dmsetup can't find a device.
 const dmsetupNotFound = "No such device or address"
 
-// DeactivateSnapshot deactivates the snapshot by removing it with dmsetup
+// DeactivateSnapshot deactivates the snapshot by removing it with dmsetup. The
+// loop device will automatically be cleaned, since it has been detached before.
 func DeactivateSnapshot(vm *api.VM) error {
-	// Global lock path.
-	glpath := filepath.Join(os.TempDir(), snapshotLockFileName)
-
-	// Create a lockfile and obtain a lock.
-	lock, err := lockfile.New(glpath)
-	if err != nil {
-		err = fmt.Errorf("failed to create lockfile: %w", err)
-		return err
-	}
-	if err = obtainLock(lock); err != nil {
-		return err
-	}
-	// Release the lock at the end.
-	defer util.DeferErr(&err, lock.Unlock)
-
 	dmArgs := []string{
 		"remove",
+		"--retry",      // udev might hold a lock briefly, so we have to retry to make sure this can work.
 		"--verifyudev", // if udevd is not running, dmsetup will manage the device node in /dev/mapper
 		vm.PrefixedID(),
 	}
