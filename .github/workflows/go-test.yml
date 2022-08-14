@@ -9,4 +9,5 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
+      - uses: crazy-max/ghaction-setup-containerd@v2
       - run: go test ./...
