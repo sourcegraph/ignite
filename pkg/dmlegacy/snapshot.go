@@ -1,12 +1,10 @@
 package dmlegacy
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
-
-	"github.com/nightlyone/lockfile"
 
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/constants"
@@ -14,8 +12,6 @@ import (
 	"github.com/weaveworks/ignite/pkg/providers"
 	"github.com/weaveworks/ignite/pkg/util"
 )
-
-const snapshotLockFileName = "ignite-snapshot.lock"
 
 // ActivateSnapshot sets up the snapshot with devicemapper so that it is active and can be used.
 // It returns the path of the bootable snapshot device.
@@ -34,35 +30,8 @@ func ActivateSnapshot(vm *api.VM) (devicePath string, err error) {
 		return
 	}
 
-	// NOTE: Multiple ignite processes trying to create loop devices at the
-	// same time results in race condition. When multiple processes request for
-	// a free loop device at the same time, they may get the same device ID and
-	// try to create the same device multiple times.
-	// Serialize this operation by creating a global lock file when creating a
-	// loop device and release the lock after setting up device mapper using the
-	// loop device.
-	// Also, concurrent interactions with device mapper results in the error:
-	//   Device or resource busy
-	// Serializing the interaction with device mapper helps avoid issues due to
-	// race conditions.
-
-	// Global lock path.
-	glpath := filepath.Join(os.TempDir(), snapshotLockFileName)
-
-	// Create a lockfile and obtain a lock.
-	lock, err := lockfile.New(glpath)
-	if err != nil {
-		err = fmt.Errorf("failed to create lockfile: %w", err)
-		return
-	}
-	if err = obtainLock(lock); err != nil {
-		return
-	}
-	// Release the lock at the end.
-	defer util.DeferErr(&err, lock.Unlock)
-
 	// Setup loop device for the image
-	imageLoop, err := newLoopDev(path.Join(constants.IMAGE_DIR, imageUID.String(), constants.IMAGE_FS), true)
+	imageLoop, err := newLoopDev(context.Background(), path.Join(constants.IMAGE_DIR, imageUID.String(), constants.IMAGE_FS), true)
 	if err != nil {
 		return
 	}
@@ -73,7 +42,7 @@ func ActivateSnapshot(vm *api.VM) (devicePath string, err error) {
 	}
 
 	// Setup loop device for the VM overlay
-	overlayLoop, err := newLoopDev(vm.OverlayFile(), false)
+	overlayLoop, err := newLoopDev(context.Background(), vm.OverlayFile(), false)
 	if err != nil {
 		return
 	}
@@ -136,34 +105,4 @@ func ActivateSnapshot(vm *api.VM) (devicePath string, err error) {
 	err = overlayLoop.Detach()
 
 	return
-}
-
-// obtainLock tries to obtain a lock and retries if the lock is owned by
-// another process, until a lock is obtained.
-func obtainLock(lock lockfile.Lockfile) error {
-	// Check if the lock has any owner.
-	process, err := lock.GetOwner()
-	if err == nil {
-		// A lock already exists. Check if the lock owner is the current process
-		// itself.
-		if process.Pid == os.Getpid() {
-			return fmt.Errorf("lockfile %q already locked by this process", lock)
-		}
-
-		// A lock already exists, but it's owned by some other process. Continue
-		// to obtain lock, in case the lock owner no longer exists.
-	}
-
-	// Obtain a lock. Retry if the lock can't be obtained.
-	err = lock.TryLock()
-	for err != nil {
-		// Check if it's a lock temporary error that can be mitigated with a
-		// retry. Fail if any other error.
-		if _, ok := err.(interface{ Temporary() bool }); !ok {
-			return fmt.Errorf("unable to lock %q: %v", lock, err)
-		}
-		err = lock.TryLock()
-	}
-
-	return nil
 }
