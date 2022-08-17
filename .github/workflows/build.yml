@@ -1,0 +1,17 @@
+name: build
+on:
+  - push
+
+env:
+  DOCKER_TTY: ""  # using `docker run -t` seems to not work in github actions, maybe related to https://github.com/actions/runner/issues/241
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+      - run: make build-all
+        env:
+          IS_CI_BUILD: '1'

@@ -1,6 +1,7 @@
 # https://github.com/marketplace/actions/run-golangci-lint
 name: golangci-lint
-on: [push, pull_request]
+on:
+  - push
 jobs:
   golangci:
     name: lint
