@@ -43,7 +43,9 @@ func CleanupVM(vm *api.VM) error {
 
 		// Remove the VM container if it exists
 		// TODO should this function return a proper error?
-		RemoveVMContainer(inspectResult)
+		if inspectResult != nil {
+			RemoveVMContainer(inspectResult)
+		}
 	}
 
 	// After removing the VM container, if the Snapshot Device is still there, clean up
@@ -63,15 +65,12 @@ func CleanupVM(vm *api.VM) error {
 	return nil
 }
 
+// RemoveVMContainer removes the VM container. If the container has been/is being
+// automatically removed between InspectContainer and this call, RemoveContainer
+// will throw an error. Currently we have no real way to inspect and remove immediately
+// without having a potential race condition, so ignore the error for now.
+// TODO: Robust conditional remove support
 func RemoveVMContainer(result *runtime.ContainerInspectResult) {
-	if result == nil {
-		return // If given no result, don't attempt removal
-	}
-
-	// Remove the VM container. If the container has been/is being automatically removed
-	// between InspectContainer and this call, RemoveContainer will throw an error. Currently
-	// we have no real way to inspect and remove immediately without having a potential race
-	// condition, so ignore the error for now. TODO: Robust conditional remove support
 	_ = providers.Runtime.RemoveContainer(result.ID)
 }
 

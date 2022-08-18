@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"time"
 
+	log "github.com/sirupsen/logrus"
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/constants"
 	"github.com/weaveworks/ignite/pkg/operations/lookup"
@@ -16,6 +18,13 @@ import (
 // ActivateSnapshot sets up the snapshot with devicemapper so that it is active and can be used.
 // It returns the path of the bootable snapshot device.
 func ActivateSnapshot(vm *api.VM) (devicePath string, err error) {
+	start := time.Now()
+	defer func() {
+		if err == nil {
+			log.Debugf("Activated snapshot in %s", time.Since(start))
+		}
+	}()
+
 	device := vm.PrefixedID()
 	devicePath = vm.SnapshotDev()
 
