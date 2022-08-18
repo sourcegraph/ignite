@@ -1,14 +1,17 @@
 package dmlegacy
 
 import (
+	"path"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/util"
 )
 
 // dmsetupNotFound is the error message when dmsetup can't find a device.
 const dmsetupNotFound = "No such device or address"
+const dmsetupResourceBusy = "Device or resource busy"
 
 // DeactivateSnapshot deactivates the snapshot by removing it with dmsetup. The
 // loop device will automatically be cleaned, since it has been detached before.
@@ -32,6 +35,25 @@ func DeactivateSnapshot(vm *api.VM) error {
 		// If the device is not found, it's been deleted already, return nil.
 		if strings.Contains(err.Error(), dmsetupNotFound) {
 			return nil
+		}
+		if strings.Contains(err.Error(), dmsetupResourceBusy) {
+			log.Warnf("Resource busy error encountered")
+			{
+				out, err2 := util.ExecuteCommand("dmsetup", "info", "-c", vm.PrefixedID(), baseDev)
+				if err2 != nil {
+					log.Warnf("Failed to get more info on device or resource busy error: dmsetup info: %s", err2)
+				}
+				log.Warnf("dmsetup info returns: %s", out)
+			}
+
+			{
+				out, err2 := util.ExecuteCommand("lsof", path.Join("/dev/mapper", vm.PrefixedID()))
+				if err2 != nil {
+					log.Warnf("Failed to get more info on device or resource busy error: lsof: %s", err2)
+				}
+				log.Warnf("potential users of the file: %s", out)
+
+			}
 		}
 		return err
 	}
