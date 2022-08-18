@@ -42,7 +42,9 @@ func StartVM(vm *api.VM, debug bool) error {
 func StartVMNonBlocking(vm *api.VM, debug bool) (*VMChannels, error) {
 	// Inspect the VM container and remove it if it exists
 	inspectResult, _ := providers.Runtime.InspectContainer(vm.PrefixedID())
-	RemoveVMContainer(inspectResult)
+	if inspectResult != nil {
+		RemoveVMContainer(inspectResult)
+	}
 
 	// Make sure we always initialize all channels
 	vmChans := &VMChannels{
@@ -127,9 +129,11 @@ func StartVMNonBlocking(vm *api.VM, debug bool) (*VMChannels, error) {
 	}
 
 	// Prepare the networking for the container, for the given network plugin
+	start := time.Now()
 	if err := providers.NetworkPlugin.PrepareContainerSpec(config); err != nil {
 		return vmChans, err
 	}
+	log.Debugf("Network plugin prepareContainerSpec took %s", time.Since(start))
 
 	// If we're not debugging, remove the container post-run
 	if !debug {
@@ -137,16 +141,20 @@ func StartVMNonBlocking(vm *api.VM, debug bool) (*VMChannels, error) {
 	}
 
 	// Run the VM container in Docker
+	start = time.Now()
 	containerID, err := providers.Runtime.RunContainer(vm.Spec.Sandbox.OCI, config, vm.PrefixedID(), vm.GetUID().String())
 	if err != nil {
 		return vmChans, fmt.Errorf("failed to start container for VM %q: %v", vm.GetUID(), err)
 	}
+	log.Debugf("Started container with isolation sandbox in %s", time.Since(start))
 
 	// Set up the networking
+	start = time.Now()
 	result, err := providers.NetworkPlugin.SetupContainerNetwork(containerID, vm.Spec.Network.Ports...)
 	if err != nil {
 		return vmChans, err
 	}
+	log.Debugf("Network plugin setupContainerNetwork took %s", time.Since(start))
 
 	if !logs.Quiet {
 		log.Infof("Networking is handled by %q", providers.NetworkPlugin.Name())
@@ -197,6 +205,11 @@ func verifyPulled(image meta.OCIImageRef) error {
 // TODO: This check for the Prometheus socket file is temporary
 // until we get a proper ignite <-> ignite-spawn communication channel
 func waitForSpawn(vm *api.VM, vmChans *VMChannels) {
+	start := time.Now()
+	defer func() {
+		log.Debugf("Spawning isolation container took %s", time.Since(start))
+	}()
+
 	const checkInterval = 100 * time.Millisecond
 
 	timer := time.Now()

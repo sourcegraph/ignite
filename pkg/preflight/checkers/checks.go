@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	log "github.com/sirupsen/logrus"
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/constants"
 	"github.com/weaveworks/ignite/pkg/network"
@@ -96,6 +98,11 @@ func (bipc BinInPathChecker) Type() string {
 }
 
 func StartCmdChecks(vm *api.VM, ignoredPreflightErrors sets.String) error {
+	start := time.Now()
+	defer func() {
+		log.Debugf("Command checks ran in %s", start)
+	}()
+
 	checks := []preflight.Checker{}
 	for _, dependency := range constants.PathDependencies {
 		checks = append(checks, ExistingFileChecker{filePath: dependency})

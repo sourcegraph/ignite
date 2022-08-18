@@ -5,7 +5,9 @@ import (
 	"io/ioutil"
 	"path"
 	"strings"
+	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/weaveworks/ignite/cmd/ignite/cmd/cmdutil"
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/apis/ignite/scheme"
@@ -240,26 +242,34 @@ func applyVMFlagOverrides(baseVM *api.VM, cf *CreateFlags, fs *flag.FlagSet) err
 }
 
 func Create(co *CreateOptions) (err error) {
+	log.Debug("Creating VM")
 	// Generate a random UID and Name
 	if err = metadata.SetNameAndUID(co.VM, providers.Client); err != nil {
 		return
 	}
+	log.Debug("Set name and UID")
 	// Set VM labels.
 	if err = metadata.SetLabels(co.VM, co.Labels); err != nil {
 		return
 	}
+	log.Debug("Set labels")
 	defer util.DeferErr(&err, func() error { return metadata.Cleanup(co.VM, false) })
 
 	if err = providers.Client.VMs().Set(co.VM); err != nil {
 		return
 	}
+	log.Debug("Set VM in store")
 
+	start := time.Now()
 	// Allocate and populate the overlay file
 	if err = dmlegacy.AllocateAndPopulateOverlay(co.VM); err != nil {
 		return
 	}
+	log.Debugf("Prepared overlay in %s", time.Since(start))
 
 	err = metadata.Success(co.VM)
+
+	log.Infof("Created VM %s (%s)", co.VM.Name, co.VM.UID)
 
 	return
 }

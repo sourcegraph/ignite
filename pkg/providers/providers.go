@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	api "github.com/weaveworks/ignite/pkg/apis/ignite"
 	"github.com/weaveworks/ignite/pkg/client"
@@ -46,12 +48,15 @@ type ProviderInitFunc func() error
 
 // Populate initializes all given providers
 func Populate(providers []ProviderInitFunc) error {
+	start := time.Now()
 	log.Trace("Populating providers...")
 	for _, init := range providers {
 		if err := init(); err != nil {
 			return err
 		}
 	}
+
+	log.Debugf("Populated providers in %s", time.Since(start))
 
 	return nil
 }

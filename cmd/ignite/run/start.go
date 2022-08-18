@@ -125,7 +125,14 @@ func dialSuccess(vm *ignite.VM, seconds int) error {
 	return nil
 }
 
-func waitForSSH(vm *ignite.VM, dialSeconds int, sshTimeout time.Duration) error {
+func waitForSSH(vm *ignite.VM, dialSeconds int, sshTimeout time.Duration) (err error) {
+	start := time.Now()
+	defer func() {
+		if err == nil {
+			log.Debugf("SSH was available after %s", time.Since(start))
+		}
+	}()
+
 	if err := dialSuccess(vm, dialSeconds); err != nil {
 		return err
 	}
