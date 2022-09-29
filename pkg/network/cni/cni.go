@@ -27,8 +27,6 @@ const (
 
 	// CNIBinDir describes the directory where the CNI binaries are stored
 	CNIBinDir = "/opt/cni/bin"
-	// CNIConfDir describes the directory where the CNI plugin's configuration is stored
-	CNIConfDir = "/etc/cni/net.d"
 	// netNSPathFmt gives the path to the a process network namespace, given the pid
 	netNSPathFmt = "/proc/%d/ns/net"
 
@@ -51,6 +49,18 @@ const (
 	// Since a large host could potentially start thousands to tens-of-thousands of firecracker vm's, perhaps a /18, /17, or /16 is appropriate.
 	defaultSubnet = "10.61.0.0/16"
 )
+
+var (
+	// CNIConfDir describes the directory where the CNI plugin's configuration is stored
+	CNIConfDir = envOrDefault("CNI_CONF_DIR", "/etc/cni/net.d")
+)
+
+func envOrDefault(name, def string) string {
+	if val, ok := os.LookupEnv(name); ok {
+		return val
+	}
+	return def
+}
 
 // defaultCNIConf is a CNI configuration chain that enables VMs to access the internet (docker-bridge style)
 var defaultCNIConf = fmt.Sprintf(`{
