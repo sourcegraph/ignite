@@ -35,7 +35,7 @@ jobs:
       - run: make
         env:
           GOARCH: amd64
-      - run: make
-        env:
-          GOARCH: arm64
-      # - run: make push
+      # - run: make
+      #   env:
+      #     GOARCH: arm64
+      - run: make push
