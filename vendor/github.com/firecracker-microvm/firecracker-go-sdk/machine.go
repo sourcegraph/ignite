@@ -16,12 +16,15 @@ package firecracker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,9 +33,9 @@ import (
 
 	"github.com/containerd/fifo"
 	"github.com/containernetworking/plugins/pkg/ns"
-	"github.com/gofrs/uuid"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
+
 	log "github.com/sirupsen/logrus"
 
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -50,27 +53,28 @@ const (
 	defaultFirecrackerInitTimeoutSeconds = 3
 )
 
-// SeccompLevelValue represents a secure computing level type.
-type SeccompLevelValue int
+// SeccompConfig contains seccomp settings for firecracker vmm
+type SeccompConfig struct {
+	// Enabled turns on/off the seccomp filters
+	Enabled bool
 
-// secure computing levels
-const (
-	// SeccompLevelDisable is the default value.
-	SeccompLevelDisable SeccompLevelValue = iota
-	// SeccompLevelBasic prohibits syscalls not whitelisted by Firecracker.
-	SeccompLevelBasic
-	// SeccompLevelAdvanced adds further checks on some of the parameters of the
-	// allowed syscalls.
-	SeccompLevelAdvanced
-)
-
-func (level SeccompLevelValue) String() string {
-	return strconv.Itoa(int(level))
+	// Filter is a file path that contains user-provided custom filter
+	Filter string
 }
 
 // ErrAlreadyStarted signifies that the Machine has already started and cannot
 // be started again.
 var ErrAlreadyStarted = errors.New("firecracker: machine already started")
+
+// ErrGraceShutdown signifies that the Machine will shutdown gracefully and SendCtrlAltDelete is unable to send
+//var ErrGraceShutdown = errors.New("Shutdown gracefully: SendCtrlAltDelete is not supported if the arch is ARM64")
+
+type MMDSVersion string
+
+const (
+	MMDSv1 = MMDSVersion("V1")
+	MMDSv2 = MMDSVersion("V2")
+)
 
 // Config is a collection of user-configurable VMM settings
 type Config struct {
@@ -150,14 +154,25 @@ type Config struct {
 	// firecracker. If not provided, the default signals will be used.
 	ForwardSignals []os.Signal
 
-	// SeccompLevel specifies whether seccomp filters should be installed and how
-	// restrictive they should be. Possible values are:
-	//
-	//	0 : (default): disabled.
-	//	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
-	//	2 : advanced filtering. This adds further checks on some of the
-	//			parameters of the allowed syscalls.
-	SeccompLevel SeccompLevelValue
+	// Seccomp specifies whether seccomp filters should be installed and how
+	// restrictive they should be.
+	Seccomp SeccompConfig
+
+	// MmdsAddress is IPv4 address used by guest applications when issuing requests to MMDS.
+	// It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
+	// If not provided, the default address (169.254.169.254) will be used.
+	MmdsAddress net.IP
+
+	// MmdsVersion is the MMDS version to use.
+	// If not provided, the default version (1) will be used.
+	MmdsVersion MMDSVersion
+
+	// Configuration for snapshot loading
+	Snapshot SnapshotConfig
+}
+
+func (cfg *Config) hasSnapshot() bool {
+	return cfg.Snapshot.GetMemBackendPath() != "" || cfg.Snapshot.SnapshotPath != ""
 }
 
 // Validate will ensure that the required fields are set and that
@@ -201,9 +216,33 @@ func (cfg *Config) Validate() error {
 		Int64Value(cfg.MachineCfg.MemSizeMib) < 1 {
 		return fmt.Errorf("machine needs a nonzero amount of memory")
 	}
-	if cfg.MachineCfg.HtEnabled == nil {
-		return fmt.Errorf("machine needs a setting for ht_enabled")
+	return nil
+}
+
+func (cfg *Config) ValidateLoadSnapshot() error {
+	if cfg.DisableValidation {
+		return nil
 	}
+
+	for _, drive := range cfg.Drives {
+		rootPath := StringValue(drive.PathOnHost)
+		if _, err := os.Stat(rootPath); err != nil {
+			return fmt.Errorf("failed to stat drive path, %q: %v", rootPath, err)
+		}
+	}
+
+	if _, err := os.Stat(cfg.SocketPath); err == nil {
+		return fmt.Errorf("socket %s already exists", cfg.SocketPath)
+	}
+
+	if _, err := os.Stat(cfg.Snapshot.GetMemBackendPath()); err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(cfg.Snapshot.SnapshotPath); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -235,6 +274,8 @@ type Machine struct {
 	// callbacks that should be run when the machine is being torn down
 	cleanupOnce  sync.Once
 	cleanupFuncs []func() error
+	// cleanupCh is a channel that gets closed to notify cleanup cleanupFuncs has been called totally
+	cleanupCh chan struct{}
 }
 
 // Logger returns a logrus logger appropriate for logging hypervisor messages
@@ -287,12 +328,6 @@ type VsockDevice struct {
 	CID uint32
 }
 
-// SocketPath returns the filesystem path to the socket used for VMM
-// communication
-func (m *Machine) socketPath() string {
-	return m.Cfg.SocketPath
-}
-
 // LogFile returns the filesystem path of the VMM log
 func (m *Machine) LogFile() string {
 	return m.Cfg.LogFifo
@@ -303,25 +338,38 @@ func (m *Machine) LogLevel() string {
 	return m.Cfg.LogLevel
 }
 
+// seccompArgs constructs the seccomp related command line arguments
+func seccompArgs(cfg *Config) []string {
+	var args []string
+	if !cfg.Seccomp.Enabled {
+		args = append(args, "--no-seccomp")
+	} else if len(cfg.Seccomp.Filter) > 0 {
+		args = append(args, "--seccomp-filter", cfg.Seccomp.Filter)
+	}
+	return args
+}
+
 func configureBuilder(builder VMCommandBuilder, cfg Config) VMCommandBuilder {
 	return builder.
 		WithSocketPath(cfg.SocketPath).
-		AddArgs("--seccomp-level", cfg.SeccompLevel.String(), "--id", cfg.VMID)
+		AddArgs("--id", cfg.VMID).
+		AddArgs(seccompArgs(&cfg)...)
 }
 
 // NewMachine initializes a new Machine instance and performs validation of the
 // provided Config.
 func NewMachine(ctx context.Context, cfg Config, opts ...Opt) (*Machine, error) {
 	m := &Machine{
-		exitCh: make(chan struct{}),
+		exitCh:    make(chan struct{}),
+		cleanupCh: make(chan struct{}),
 	}
 
 	if cfg.VMID == "" {
-		randomID, err := uuid.NewV4()
+		id, err := uuid.NewRandom()
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create random ID for VMID")
+			return nil, fmt.Errorf("failed to create random ID for VMID: %w", err)
 		}
-		cfg.VMID = randomID.String()
+		cfg.VMID = id.String()
 	}
 
 	m.Handlers = defaultHandlers
@@ -334,16 +382,6 @@ func NewMachine(ctx context.Context, cfg Config, opts ...Opt) (*Machine, error) 
 	} else {
 		m.Handlers.Validation = m.Handlers.Validation.Append(ConfigValidationHandler)
 		m.cmd = configureBuilder(defaultFirecrackerVMMCommandBuilder, cfg).Build(ctx)
-	}
-
-	for _, opt := range opts {
-		opt(m)
-	}
-
-	if m.logger == nil {
-		logger := log.New()
-
-		m.logger = log.NewEntry(logger)
 	}
 
 	if m.client == nil {
@@ -365,6 +403,16 @@ func NewMachine(ctx context.Context, cfg Config, opts ...Opt) (*Machine, error) 
 
 	if cfg.NetNS == "" && cfg.NetworkInterfaces.cniInterface() != nil {
 		m.Cfg.NetNS = m.defaultNetNSPath()
+	}
+
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	if m.logger == nil {
+		logger := log.New()
+
+		m.logger = log.NewEntry(logger)
 	}
 
 	m.logger.Debug("Called NewMachine()")
@@ -412,7 +460,11 @@ func (m *Machine) Start(ctx context.Context) error {
 // Shutdown requests a clean shutdown of the VM by sending CtrlAltDelete on the virtual keyboard
 func (m *Machine) Shutdown(ctx context.Context) error {
 	m.logger.Debug("Called machine.Shutdown()")
-	return m.sendCtrlAltDel(ctx)
+	if runtime.GOARCH != "arm64" {
+		return m.sendCtrlAltDel(ctx)
+	} else {
+		return m.StopVMM()
+	}
 }
 
 // Wait will wait until the firecracker process has finished.  Wait is safe to
@@ -425,6 +477,18 @@ func (m *Machine) Wait(ctx context.Context) error {
 	case <-m.exitCh:
 		return m.fatalErr
 	}
+}
+
+// GetFirecrackerVersion gets the machine's firecracker version and returns it
+func (m *Machine) GetFirecrackerVersion(ctx context.Context) (string, error) {
+	resp, err := m.client.GetFirecrackerVersion(ctx)
+	if err != nil {
+		m.logger.Errorf("Getting firecracker version: %s", err)
+		return "", err
+	}
+
+	m.logger.Debug("GetFirecrackerVersion successful")
+	return *resp.Payload.FirecrackerVersion, nil
 }
 
 func (m *Machine) setupNetwork(ctx context.Context) error {
@@ -541,6 +605,8 @@ func (m *Machine) startVMM(ctx context.Context) error {
 		// When err is nil, two reads are performed (waitForSocket and close exitCh goroutine),
 		// second one never ends as it tries to read from empty channel.
 		close(errCh)
+		close(m.cleanupCh)
+
 	}()
 
 	m.setupSignals()
@@ -548,17 +614,23 @@ func (m *Machine) startVMM(ctx context.Context) error {
 	// Wait for firecracker to initialize:
 	err = m.waitForSocket(time.Duration(m.client.firecrackerInitTimeout)*time.Second, errCh)
 	if err != nil {
-		err = errors.Wrapf(err, "Firecracker did not create API socket %s", m.Cfg.SocketPath)
+		err = fmt.Errorf("Firecracker did not create API socket %s: %w", m.Cfg.SocketPath, err)
 		m.fatalErr = err
 		close(m.exitCh)
 
 		return err
 	}
 
-	// This goroutine is used to kill the process by context cancelletion,
+	// This goroutine is used to kill the process by context cancellation,
 	// but doesn't tell anyone about that.
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+			break
+		case <-m.exitCh:
+			// VMM exited on its own; no need to stop it.
+			return
+		}
 		err := m.stopVMM()
 		if err != nil {
 			m.logger.WithError(err).Errorf("failed to stop vm %q", m.Cfg.VMID)
@@ -577,7 +649,7 @@ func (m *Machine) startVMM(ctx context.Context) error {
 	return nil
 }
 
-//StopVMM stops the current VMM.
+// StopVMM stops the current VMM.
 func (m *Machine) StopVMM() error {
 	return m.stopVMM()
 }
@@ -589,6 +661,8 @@ func (m *Machine) stopVMM() error {
 		if err != nil && !strings.Contains(err.Error(), "os: process already finished") {
 			return err
 		}
+		// Wait for the cleanup to finish.
+		<-m.cleanupCh
 		return nil
 	}
 	m.logger.Debug("stopVMM(): no firecracker process running, not sending a signal")
@@ -760,18 +834,9 @@ func (m *Machine) createNetworkInterface(ctx context.Context, iface NetworkInter
 		iface.StaticConfiguration.HostDevName, iface.StaticConfiguration.MacAddress, ifaceID)
 
 	ifaceCfg := models.NetworkInterface{
-		IfaceID:           &ifaceID,
-		GuestMac:          iface.StaticConfiguration.MacAddress,
-		HostDevName:       String(iface.StaticConfiguration.HostDevName),
-		AllowMmdsRequests: iface.AllowMMDS,
-	}
-
-	if iface.InRateLimiter != nil {
-		ifaceCfg.RxRateLimiter = iface.InRateLimiter
-	}
-
-	if iface.OutRateLimiter != nil {
-		ifaceCfg.TxRateLimiter = iface.OutRateLimiter
+		IfaceID:     &ifaceID,
+		GuestMac:    iface.StaticConfiguration.MacAddress,
+		HostDevName: String(iface.StaticConfiguration.HostDevName),
 	}
 
 	if iface.InRateLimiter != nil {
@@ -829,7 +894,7 @@ func (m *Machine) addVsock(ctx context.Context, dev VsockDevice) error {
 	vsockCfg := models.Vsock{
 		GuestCid: Int64(int64(dev.CID)),
 		UdsPath:  &dev.Path,
-		VsockID:  &dev.ID,
+		VsockID:  dev.ID,
 	}
 
 	resp, err := m.client.PutGuestVsock(ctx, &vsockCfg)
@@ -841,6 +906,10 @@ func (m *Machine) addVsock(ctx context.Context, dev VsockDevice) error {
 }
 
 func (m *Machine) startInstance(ctx context.Context) error {
+	if m.Cfg.hasSnapshot() {
+		return nil
+	}
+
 	action := models.InstanceActionInfoActionTypeInstanceStart
 	info := models.InstanceActionInfo{
 		ActionType: &action,
@@ -868,6 +937,39 @@ func (m *Machine) sendCtrlAltDel(ctx context.Context) error {
 		m.logger.Errorf("Unable to send CtrlAltDel: %s", err)
 	}
 	return err
+}
+
+func (m *Machine) setMmdsConfig(ctx context.Context, address net.IP, ifaces NetworkInterfaces, version MMDSVersion) error {
+	var mmdsCfg models.MmdsConfig
+	// MMDS config supports v1 and v2, v1 is going to be deprecated.
+	// Default to the version 1 if no version is specified
+	if version == MMDSv1 || version == MMDSv2 {
+		mmdsCfg.Version = String(string(version))
+	} else {
+		mmdsCfg.Version = String(string(MMDSv1))
+	}
+	if address != nil {
+		mmdsCfg.IPV4Address = String(address.String())
+	}
+	for id, iface := range ifaces {
+		if iface.AllowMMDS {
+			mmdsCfg.NetworkInterfaces = append(mmdsCfg.NetworkInterfaces, strconv.Itoa(id+1))
+		}
+	}
+	// MMDS is tightly coupled with a network interface, which allows MMDS requests.
+	// When configuring the microVM, if MMDS needs to be activated, a network interface
+	// has to be configured to allow MMDS requests.
+	if len(mmdsCfg.NetworkInterfaces) == 0 {
+		m.logger.Infof("No interfaces are allowed to access MMDS, skipping MMDS config")
+		return nil
+	}
+	if _, err := m.client.PutMmdsConfig(ctx, &mmdsCfg); err != nil {
+		m.logger.Errorf("Setting mmds configuration failed: %s: %v", address, err)
+		return err
+	}
+
+	m.logger.Debug("SetMmdsConfig successful")
+	return nil
 }
 
 // SetMetadata sets the machine's metadata for MDDS
@@ -925,6 +1027,23 @@ func (m *Machine) UpdateGuestDrive(ctx context.Context, driveID, pathOnHost stri
 
 	m.logger.Printf("PatchGuestDrive successful")
 	return nil
+}
+
+func (m *Machine) DescribeInstanceInfo(ctx context.Context) (models.InstanceInfo, error) {
+	var instanceInfo models.InstanceInfo
+	resp, err := m.client.GetInstanceInfo(ctx)
+	if err != nil {
+		m.logger.Errorf("Getting Instance Info: %s", err)
+		return instanceInfo, err
+	}
+
+	instanceInfo = *resp.Payload
+	if err != nil {
+		m.logger.Errorf("Getting Instance info failed parsing payload: %s", err)
+	}
+
+	m.logger.Printf("GetInstanceInfo successful")
+	return instanceInfo, err
 }
 
 // refreshMachineConfiguration synchronizes our cached representation of the machine configuration
@@ -1001,4 +1120,144 @@ func (m *Machine) setupSignals() {
 		signal.Stop(sigchan)
 		close(sigchan)
 	}()
+}
+
+// PauseVM pauses the VM
+func (m *Machine) PauseVM(ctx context.Context, opts ...PatchVMOpt) error {
+	vm := &models.VM{
+		State: String(models.VMStatePaused),
+	}
+
+	if _, err := m.client.PatchVM(ctx, vm, opts...); err != nil {
+		m.logger.Errorf("failed to pause the VM: %v", err)
+		return err
+	}
+
+	m.logger.Debug("VM paused successfully")
+	return nil
+}
+
+// ResumeVM resumes the VM
+func (m *Machine) ResumeVM(ctx context.Context, opts ...PatchVMOpt) error {
+	vm := &models.VM{
+		State: String(models.VMStateResumed),
+	}
+
+	if _, err := m.client.PatchVM(ctx, vm, opts...); err != nil {
+		m.logger.Errorf("failed to resume the VM: %v", err)
+		return err
+	}
+
+	m.logger.Debug("VM resumed successfully")
+	return nil
+}
+
+// CreateSnapshot creates a snapshot of the VM
+func (m *Machine) CreateSnapshot(ctx context.Context, memFilePath, snapshotPath string, opts ...CreateSnapshotOpt) error {
+	snapshotParams := &models.SnapshotCreateParams{
+		MemFilePath:  String(memFilePath),
+		SnapshotPath: String(snapshotPath),
+	}
+
+	if _, err := m.client.CreateSnapshot(ctx, snapshotParams, opts...); err != nil {
+		m.logger.Errorf("failed to create a snapshot of the VM: %v", err)
+		return err
+	}
+
+	m.logger.Debug("snapshot created successfully")
+	return nil
+}
+
+// loadSnapshot loads a snapshot of the VM
+func (m *Machine) loadSnapshot(ctx context.Context, snapshot *SnapshotConfig) error {
+	snapshotParams := &models.SnapshotLoadParams{
+		MemFilePath:         snapshot.MemFilePath,
+		MemBackend:          snapshot.MemBackend,
+		SnapshotPath:        &snapshot.SnapshotPath,
+		EnableDiffSnapshots: snapshot.EnableDiffSnapshots,
+		ResumeVM:            snapshot.ResumeVM,
+	}
+
+	if _, err := m.client.LoadSnapshot(ctx, snapshotParams); err != nil {
+		return fmt.Errorf("failed to load a snapshot for VM: %v", err)
+	}
+
+	m.logger.Debug("snapshot loaded successfully")
+	return nil
+}
+
+// CreateBalloon creates a balloon device if one does not exist
+func (m *Machine) CreateBalloon(ctx context.Context, amountMib int64, deflateOnOom bool, statsPollingIntervals int64, opts ...PutBalloonOpt) error {
+	balloon := models.Balloon{
+		AmountMib:             &amountMib,
+		DeflateOnOom:          &deflateOnOom,
+		StatsPollingIntervals: statsPollingIntervals,
+	}
+	_, err := m.client.PutBalloon(ctx, &balloon, opts...)
+
+	if err != nil {
+		m.logger.Errorf("Create balloon device failed : %s", err)
+		return err
+	}
+
+	m.logger.Debug("Created balloon device successful")
+	return nil
+}
+
+// GetBalloonConfig gets the current balloon device configuration.
+func (m *Machine) GetBalloonConfig(ctx context.Context) (models.Balloon, error) {
+	var balloonConfig models.Balloon
+	resp, err := m.client.DescribeBalloonConfig(ctx)
+	if err != nil {
+		m.logger.Errorf("Getting balloonConfig: %s", err)
+		return balloonConfig, err
+	}
+
+	balloonConfig = *resp.Payload
+	m.logger.Debug("GetBalloonConfig successful")
+	return balloonConfig, err
+}
+
+// UpdateBalloon will update an existing balloon device, before or after machine startup
+func (m *Machine) UpdateBalloon(ctx context.Context, amountMib int64, opts ...PatchBalloonOpt) error {
+	ballonUpdate := models.BalloonUpdate{
+		AmountMib: &amountMib,
+	}
+	_, err := m.client.PatchBalloon(ctx, &ballonUpdate, opts...)
+	if err != nil {
+		m.logger.Errorf("Update balloon device failed : %s", err)
+		return err
+	}
+
+	m.logger.Debug("Update balloon device successful")
+	return nil
+}
+
+// GetBalloonStats gets the latest balloon device statistics, only if enabled pre-boot.
+func (m *Machine) GetBalloonStats(ctx context.Context) (models.BalloonStats, error) {
+	var balloonStats models.BalloonStats
+	resp, err := m.client.DescribeBalloonStats(ctx)
+	if err != nil {
+		m.logger.Errorf("Getting balloonStats: %s", err)
+		return balloonStats, err
+	}
+	balloonStats = *resp.Payload
+	m.logger.Debug("GetBalloonStats successful")
+	return balloonStats, nil
+}
+
+// UpdateBalloon will update a balloon device statistics polling interval.
+// Statistics cannot be turned on/off after boot.
+func (m *Machine) UpdateBalloonStats(ctx context.Context, statsPollingIntervals int64, opts ...PatchBalloonStatsIntervalOpt) error {
+	balloonStatsUpdate := models.BalloonStatsUpdate{
+		StatsPollingIntervals: &statsPollingIntervals,
+	}
+
+	if _, err := m.client.PatchBalloonStatsInterval(ctx, &balloonStatsUpdate, opts...); err != nil {
+		m.logger.Errorf("UpdateBalloonStats failed: %v", err)
+		return err
+	}
+
+	m.logger.Debug("UpdateBalloonStats successful")
+	return nil
 }

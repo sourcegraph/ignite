@@ -1,3 +1,15 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"). You may
+// not use this file except in compliance with the License. A copy of the
+// License is located at
+//
+//	http://aws.amazon.com/apache2.0/
+//
+// or in the "license" file accompanying this file. This file is distributed
+// on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+// express or implied. See the License for the specific language governing
+// permissions and limitations under the License.
 package firecracker
 
 import (
@@ -89,5 +101,21 @@ func WithPartuuid(uuid string) DriveOpt {
 func WithRateLimiter(limiter models.RateLimiter) DriveOpt {
 	return func(d *models.Drive) {
 		d.RateLimiter = &limiter
+	}
+}
+
+// WithCacheType sets the cache strategy for the block device
+func WithCacheType(cacheType string) DriveOpt {
+	return func(d *models.Drive) {
+		d.CacheType = String(cacheType)
+	}
+}
+
+// WithIoEngine sets the io engine of the drive
+// Defaults to Sync, Async is in developer preview at the moment
+// https://github.com/firecracker-microvm/firecracker/blob/v1.1.0/docs/api_requests/block-io-engine.md
+func WithIoEngine(ioEngine string) DriveOpt {
+	return func(d *models.Drive) {
+		d.IoEngine = String(ioEngine)
 	}
 }

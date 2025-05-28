@@ -16,6 +16,7 @@ package firecracker
 import (
 	"os/exec"
 
+	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,5 +46,55 @@ func WithLogger(logger *logrus.Entry) Opt {
 func WithProcessRunner(cmd *exec.Cmd) Opt {
 	return func(machine *Machine) {
 		machine.cmd = cmd
+	}
+}
+
+// WithSnapshotOpt allows configuration of the snapshot config
+// to be passed to LoadSnapshot
+type WithSnapshotOpt func(*SnapshotConfig)
+
+// WithSnapshot will allow for the machine to start using a given snapshot.
+//
+// If using the UFFD memory backend, the memFilePath may be empty (it is
+// ignored), and instead the UFFD socket should be specified using
+// MemoryBackendType, as in the following example:
+//
+//	WithSnapshot(
+//	  "", snapshotPath,
+//	  WithMemoryBackend(models.MemoryBackendBackendTypeUffd, "uffd.sock"))
+func WithSnapshot(memFilePath, snapshotPath string, opts ...WithSnapshotOpt) Opt {
+	return func(m *Machine) {
+		m.Cfg.Snapshot.MemFilePath = memFilePath
+		m.Cfg.Snapshot.SnapshotPath = snapshotPath
+
+		for _, opt := range opts {
+			opt(&m.Cfg.Snapshot)
+		}
+
+		m.Handlers.Validation = m.Handlers.Validation.Remove(ValidateCfgHandlerName).Append(LoadSnapshotConfigValidationHandler)
+		m.Handlers.FcInit = modifyHandlersForLoadSnapshot(m.Handlers.FcInit)
+	}
+}
+
+func modifyHandlersForLoadSnapshot(l HandlerList) HandlerList {
+	for _, h := range loadSnapshotRemoveHandlerList {
+		l = l.Remove(h.Name)
+	}
+	l = l.Append(LoadSnapshotHandler)
+	return l
+}
+
+// WithMemoryBackend sets the memory backend to the given type, using the given
+// backing file path (a regular file for "File" type, or a UFFD socket path for
+// "Uffd" type).
+//
+// Note that if MemFilePath is already configured for the snapshot config, it
+// will be ignored, and the backendPath specified here will be used instead.
+func WithMemoryBackend(backendType, backendPath string) WithSnapshotOpt {
+	return func(cfg *SnapshotConfig) {
+		cfg.MemBackend = &models.MemoryBackend{
+			BackendType: String(backendType),
+			BackendPath: String(backendPath),
+		}
 	}
 }

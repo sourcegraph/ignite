@@ -17,11 +17,11 @@
 package cni
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
-	"github.com/pkg/errors"
+	types100 "github.com/containernetworking/cni/pkg/types/100"
 )
 
 type IPConfig struct {
@@ -29,36 +29,49 @@ type IPConfig struct {
 	Gateway net.IP
 }
 
-type CNIResult struct {
+// Result contains the network information returned by CNI.Setup
+//
+// a) Interfaces list. Depending on the plugin, this can include the sandbox
+//
+//	(eg, container or hypervisor) interface name and/or the host interface
+//	name, the hardware addresses of each interface, and details about the
+//	sandbox (if any) the interface is in.
+//
+// b) IP configuration assigned to each  interface. The IPv4 and/or IPv6 addresses,
+//
+//	gateways, and routes assigned to sandbox and/or host interfaces.
+//
+// c) DNS information. Dictionary that includes DNS information for nameservers,
+//
+//	domain, search domains and options.
+type Result struct {
 	Interfaces map[string]*Config
 	DNS        []types.DNS
 	Routes     []*types.Route
+	raw        []*types100.Result
+}
+
+// Raw returns the raw CNI results of multiple networks.
+func (r *Result) Raw() []*types100.Result {
+	return r.raw
 }
 
 type Config struct {
-	IPConfigs []*IPConfig
-	Mac       string
-	Sandbox   string
+	IPConfigs  []*IPConfig
+	Mac        string
+	Sandbox    string
+	PciID      string
+	SocketPath string
 }
 
-// GetCNIResultFromResults returns a structured data containing the
-// interface configuration for each of the interfaces created in the namespace.
-// Conforms with
-// Result:
-// a) Interfaces list. Depending on the plugin, this can include the sandbox
-// (eg, container or hypervisor) interface name and/or the host interface
-// name, the hardware addresses of each interface, and details about the
-// sandbox (if any) the interface is in.
-// b) IP configuration assigned to each  interface. The IPv4 and/or IPv6 addresses,
-// gateways, and routes assigned to sandbox and/or host interfaces.
-// c) DNS information. Dictionary that includes DNS information for nameservers,
-// domain, search domains and options.
-func (c *libcni) GetCNIResultFromResults(results []*current.Result) (*CNIResult, error) {
-	c.RLock()
-	defer c.RUnlock()
-
-	r := &CNIResult{
+// createResult creates a Result from the given slice of types100.Result, adding
+// structured data containing the interface configuration for each of the
+// interfaces created in the namespace. It returns an error if validation of
+// results fails, or if a network could not be found.
+func (c *libcni) createResult(results []*types100.Result) (*Result, error) {
+	r := &Result{
 		Interfaces: make(map[string]*Config),
+		raw:        results,
 	}
 
 	// Plugins may not need to return Interfaces in result if
@@ -71,15 +84,17 @@ func (c *libcni) GetCNIResultFromResults(results []*current.Result) (*CNIResult,
 		// Walk through all the interface in each result
 		for _, intf := range result.Interfaces {
 			r.Interfaces[intf.Name] = &Config{
-				Mac:     intf.Mac,
-				Sandbox: intf.Sandbox,
+				Mac:        intf.Mac,
+				Sandbox:    intf.Sandbox,
+				SocketPath: intf.SocketPath,
+				PciID:      intf.PciID,
 			}
 		}
 		// Walk through all the IPs in the result and attach it to corresponding
 		// interfaces
 		for _, ipConf := range result.IPs {
 			if err := validateInterfaceConfig(ipConf, len(result.Interfaces)); err != nil {
-				return nil, errors.Wrapf(ErrInvalidResult, "invalid interface config: %v", err)
+				return nil, fmt.Errorf("invalid interface config: %v: %w", err, ErrInvalidResult)
 			}
 			name := c.getInterfaceName(result.Interfaces, ipConf)
 			r.Interfaces[name].IPConfigs = append(r.Interfaces[name].IPConfigs,
@@ -89,7 +104,7 @@ func (c *libcni) GetCNIResultFromResults(results []*current.Result) (*CNIResult,
 		r.Routes = append(r.Routes, result.Routes...)
 	}
 	if _, ok := r.Interfaces[defaultInterface(c.prefix)]; !ok {
-		return nil, errors.Wrapf(ErrNotFound, "default network not found for: %s", defaultInterface(c.prefix))
+		return nil, fmt.Errorf("default network not found for: %s: %w", defaultInterface(c.prefix), ErrNotFound)
 	}
 	return r, nil
 }
@@ -97,8 +112,8 @@ func (c *libcni) GetCNIResultFromResults(results []*current.Result) (*CNIResult,
 // getInterfaceName returns the interface name if the plugins
 // return the result with associated interfaces. If interface
 // is not present then default interface name is used
-func (c *libcni) getInterfaceName(interfaces []*current.Interface,
-	ipConf *current.IPConfig) string {
+func (c *libcni) getInterfaceName(interfaces []*types100.Interface,
+	ipConf *types100.IPConfig) string {
 	if ipConf.Interface != nil {
 		return interfaces[*ipConf.Interface].Name
 	}

@@ -30,13 +30,17 @@ const (
 	CreateNetworkInterfacesHandlerName = "fcinit.CreateNetworkInterfaces"
 	AddVsocksHandlerName               = "fcinit.AddVsocks"
 	SetMetadataHandlerName             = "fcinit.SetMetadata"
+	ConfigMmdsHandlerName              = "fcinit.ConfigMmds"
 	LinkFilesToRootFSHandlerName       = "fcinit.LinkFilesToRootFS"
 	SetupNetworkHandlerName            = "fcinit.SetupNetwork"
 	SetupKernelArgsHandlerName         = "fcinit.SetupKernelArgs"
+	CreateBalloonHandlerName           = "fcinit.CreateBalloon"
+	LoadSnapshotHandlerName            = "fcinit.LoadSnapshot"
 
-	ValidateCfgHandlerName        = "validate.Cfg"
-	ValidateJailerCfgHandlerName  = "validate.JailerCfg"
-	ValidateNetworkCfgHandlerName = "validate.NetworkCfg"
+	ValidateCfgHandlerName             = "validate.Cfg"
+	ValidateJailerCfgHandlerName       = "validate.JailerCfg"
+	ValidateNetworkCfgHandlerName      = "validate.NetworkCfg"
+	ValidateLoadSnapshotCfgHandlerName = "validate.LoadSnapshotCfg"
 )
 
 // HandlersAdapter is an interface used to modify a given set of handlers.
@@ -54,6 +58,16 @@ var ConfigValidationHandler = Handler{
 	},
 }
 
+// LoadSnapshotConfigValidationHandler is used to validate that required
+// fields are present.
+var LoadSnapshotConfigValidationHandler = Handler{
+	Name: ValidateLoadSnapshotCfgHandlerName,
+	Fn: func(ctx context.Context, m *Machine) error {
+		// ensure that the configuration is valid for the FcInit handlers.
+		return m.Cfg.ValidateLoadSnapshot()
+	},
+}
+
 // JailerConfigValidationHandler is used to validate that required fields are
 // present.
 var JailerConfigValidationHandler = Handler{
@@ -63,7 +77,7 @@ var JailerConfigValidationHandler = Handler{
 			return nil
 		}
 
-		hasRoot := false
+		hasRoot := m.Cfg.InitrdPath != ""
 		for _, drive := range m.Cfg.Drives {
 			if BoolValue(drive.IsRootDevice) {
 				hasRoot = true
@@ -258,6 +272,35 @@ func NewSetMetadataHandler(metadata interface{}) Handler {
 	}
 }
 
+// ConfigMmdsHandler is a named handler that puts the MMDS config into the
+// firecracker process.
+var ConfigMmdsHandler = Handler{
+	Name: ConfigMmdsHandlerName,
+	Fn: func(ctx context.Context, m *Machine) error {
+		return m.setMmdsConfig(ctx, m.Cfg.MmdsAddress, m.Cfg.NetworkInterfaces, m.Cfg.MmdsVersion)
+	},
+}
+
+// NewCreateBalloonHandler is a named handler that put a memory balloon into the
+// firecracker process.
+func NewCreateBalloonHandler(amountMib int64, deflateOnOom bool, StatsPollingIntervals int64) Handler {
+	return Handler{
+		Name: CreateBalloonHandlerName,
+		Fn: func(ctx context.Context, m *Machine) error {
+			return m.CreateBalloon(ctx, amountMib, deflateOnOom, StatsPollingIntervals)
+		},
+	}
+}
+
+// LoadSnapshotHandler is a named handler that loads a snapshot
+// from the specified filepath
+var LoadSnapshotHandler = Handler{
+	Name: LoadSnapshotHandlerName,
+	Fn: func(ctx context.Context, m *Machine) error {
+		return m.loadSnapshot(ctx, &m.Cfg.Snapshot)
+	},
+}
+
 var defaultFcInitHandlerList = HandlerList{}.Append(
 	SetupNetworkHandler,
 	SetupKernelArgsHandler,
@@ -269,7 +312,21 @@ var defaultFcInitHandlerList = HandlerList{}.Append(
 	AttachDrivesHandler,
 	CreateNetworkInterfacesHandler,
 	AddVsocksHandler,
+	ConfigMmdsHandler,
 )
+
+// When the machine starts, these handlers cannot run
+// if we plan to load a snapshot. As these handlers are
+// included in defaultFcInitHandlerList, we must remove them
+// if WithSnapshot() has been specified.
+var loadSnapshotRemoveHandlerList = []Handler{
+	SetupKernelArgsHandler,
+	CreateMachineHandler,
+	CreateBootSourceHandler,
+	AttachDrivesHandler,
+	CreateNetworkInterfacesHandler,
+	ConfigMmdsHandler,
+}
 
 var defaultValidationHandlerList = HandlerList{}.Append(
 	NetworkConfigValidationHandler,
