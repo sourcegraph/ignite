@@ -6,15 +6,12 @@ toolchain go1.23.4
 
 replace github.com/docker/distribution => github.com/docker/distribution v0.0.0-20190711223531-1fb7fffdb266
 
-// TODO: Remove this when https://github.com/vishvananda/netlink/pull/554 is merged
-replace github.com/vishvananda/netlink => github.com/twelho/netlink v1.1.1-ageing
-
 require (
 	github.com/alessio/shellescape v1.2.2
 	github.com/c2h5oh/datasize v0.0.0-20200112174442-28bbd4740fee
 	github.com/containerd/console v1.0.4
 	github.com/containerd/containerd v1.7.23
-	github.com/containerd/go-cni v1.1.9
+	github.com/containerd/go-cni v1.1.12
 	github.com/containernetworking/plugins v1.7.1
 	github.com/containers/image v3.0.2+incompatible
 	github.com/coreos/go-iptables v0.8.0
@@ -129,6 +126,7 @@ require (
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opencontainers/selinux v1.12.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
+	github.com/petermattis/goid v0.0.0-20250508124226-395b08cebbdb // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
@@ -136,6 +134,7 @@ require (
 	github.com/rjeczalik/notify v0.9.2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/safchain/ethtool v0.5.10 // indirect
+	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/xanzy/ssh-agent v0.2.1 // indirect
