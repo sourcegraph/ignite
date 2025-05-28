@@ -31,7 +31,7 @@ KERNEL_BUILDER_NAME=${REGISTRY}/ignite-kernel-builder
 # Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates
 KERNEL_VERSIONS ?= 5.10.135 6.1.140 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
 GOARCH?=amd64
-GOARCH_LIST = amd64 arm64
+GOARCH_LIST = amd64 # arm64
 
 ifeq ($(GOARCH),amd64)
 KERNEL_ARCH=x86
