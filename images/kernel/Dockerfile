@@ -27,6 +27,7 @@ COPY generated/config-${GOARCH}-${KERNEL_VERSION}${KERNEL_EXTRA} .config
 RUN make ${ARCH_MAKE_PARAMS} EXTRAVERSION=${KERNEL_EXTRA} LOCALVERSION= olddefconfig
 
 RUN	make ${ARCH_MAKE_PARAMS} EXTRAVERSION=${KERNEL_EXTRA} LOCALVERSION= -j32
+RUN mkdir -p /lib/modules
 # RUN make ${ARCH_MAKE_PARAMS} EXTRAVERSION=${KERNEL_EXTRA} LOCALVERSION= modules_install
 
 # VMLINUX_PATH is configurable, as the arm64 kernel to be booted by Firecracker is present
@@ -38,4 +39,4 @@ RUN cp ${VMLINUX_PATH} /boot/vmlinux-${KERNEL_VERSION}${KERNEL_EXTRA} && \
 
 FROM scratch
 COPY --from=builder /boot /boot
-# COPY --from=builder /lib/modules /lib/modules
+COPY --from=builder /lib/modules /lib/modules
