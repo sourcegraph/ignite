@@ -42,3 +42,60 @@ CONFIG_IKCONFIG_PROC=y
 
 # Enable support for TCMU, required by most of the storage systems.
 CONFIG_TCM_USER2=m
+
+#
+# Firecracker: Required for block and network devices
+#
+CONFIG_VIRTIO_BLK=y             # Support for virtio-blk device (used for rootfs)
+CONFIG_VIRTIO_NET=y             # Support for virtio-net device (used for networking)
+CONFIG_VIRTIO_MMIO=y            # Support for MMIO-based virtio (Firecracker uses MMIO, not PCI)
+
+#
+# Firecracker: Device file system support
+#
+CONFIG_DEVTMPFS=y               # Enables devtmpfs, needed to create /dev nodes
+CONFIG_DEVTMPFS_MOUNT=y         # Mounts devtmpfs automatically at boot
+
+#
+# Firecracker: Serial console for I/O
+#
+CONFIG_SERIAL_8250=y            # Support for 8250 UART (used by Firecracker's ttyS0)
+CONFIG_SERIAL_8250_CONSOLE=y    # Allow console output to ttyS0
+
+#
+# Filesystem support
+#
+CONFIG_EXT4=y                   # Enables ext4 support for root filesystem
+CONFIG_TMPFS=y                  # Enables tmpfs (used in many init systems)
+CONFIG_PROC_FS=y                # Enables /proc filesystem (useful for monitoring/debugging)
+CONFIG_SYSFS=y                  # Enables /sys filesystem (device introspection)
+
+#
+# Firecracker: Networking stack
+#
+CONFIG_NET=y                    # Enable networking
+CONFIG_NETDEVICES=y            # Enable network device core support
+
+#
+# Firecracker: Security features
+#
+CONFIG_STRICT_KERNEL_RWX=y     # Disallow W+X memory in kernel space
+CONFIG_STRICT_MODULE_RWX=y     # Disallow W+X memory in kernel modules (if modules enabled)
+CONFIG_SECURITY_DMESG_RESTRICT=y # Restrict dmesg access to privileged users
+CONFIG_DEFAULT_MMAP_MIN_ADDR=65536 # Mitigate null pointer dereference attacks
+CONFIG_SECCOMP=y               # Enable seccomp syscall filtering (Firecracker uses this)
+CONFIG_SECCOMP_FILTER=y        # Enable custom seccomp filters
+
+#
+# Firecracker: Optional but useful
+#
+CONFIG_BLK_DEV_INITRD=y        # Support for initrd/initramfs if you're using one
+
+#
+# Firecracker: Disable unused subsystems for smaller and faster kernel
+#
+CONFIG_USB_SUPPORT=n           # Disable USB support (Firecracker has no USB devices)
+CONFIG_SND=n                   # Disable sound support
+CONFIG_INPUT=n                 # Disable input subsystem (no keyboard/mouse in Firecracker)
+CONFIG_MODULES=n               # Disable loadable module support (Firecracker expects monolithic kernels)
+CONFIG_ACPI=n                  # Disable ACPI (Firecracker uses Device Tree instead)
