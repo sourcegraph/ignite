@@ -13,7 +13,7 @@ ARG FIRECRACKER_VERSION
 # If amd64 is set, this is "-x86_64". If arm64, this should be "-aarch64".
 ARG FIRECRACKER_ARCH_SUFFIX
 RUN wget -qO- https://github.com/firecracker-microvm/firecracker/releases/download/${FIRECRACKER_VERSION}/firecracker-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}.tgz | tar -xvz && \
-    mv release-${FIRECRACKER_VERSION}/firecracker-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX} /usr/local/bin/firecracker && \
+    mv release-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}/firecracker-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX} /usr/local/bin/firecracker && \
     rm -r release-${FIRECRACKER_VERSION}
 
 # Add ignite-spawn to the image
