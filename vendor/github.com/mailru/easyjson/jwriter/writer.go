@@ -67,6 +67,18 @@ func (w *Writer) RawString(s string) {
 	w.Buffer.AppendString(s)
 }
 
+// RawBytesString appends string from bytes to the buffer.
+func (w *Writer) RawBytesString(data []byte, err error) {
+	switch {
+	case w.Error != nil:
+		return
+	case err != nil:
+		w.Error = err
+	default:
+		w.String(string(data))
+	}
+}
+
 // Raw appends raw binary data to the buffer or sets the error if it is given. Useful for
 // calling with results of MarshalJSON-like functions.
 func (w *Writer) Raw(data []byte, err error) {
@@ -297,11 +309,9 @@ func (w *Writer) String(s string) {
 
 	p := 0 // last non-escape symbol
 
-	var escapeTable [128]bool
+	escapeTable := &htmlEscapeTable
 	if w.NoEscapeHTML {
-		escapeTable = htmlNoEscapeTable
-	} else {
-		escapeTable = htmlEscapeTable
+		escapeTable = &htmlNoEscapeTable
 	}
 
 	for i := 0; i < len(s); {

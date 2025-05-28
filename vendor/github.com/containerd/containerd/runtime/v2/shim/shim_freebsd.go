@@ -1,5 +1,3 @@
-// +build freebsd
-
 /*
    Copyright The containerd Authors.
 
@@ -20,8 +18,8 @@ package shim
 
 import "github.com/containerd/ttrpc"
 
-func newServer() (*ttrpc.Server, error) {
-	return ttrpc.NewServer()
+func newServer(opts ...ttrpc.ServerOpt) (*ttrpc.Server, error) {
+	return ttrpc.NewServer(opts...)
 }
 
 func subreaper() error {

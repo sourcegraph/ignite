@@ -19,22 +19,25 @@ package containerd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
+
+	"github.com/containerd/platforms"
+	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/identity"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/labels"
+	"github.com/containerd/containerd/pkg/kmutex"
 	"github.com/containerd/containerd/rootfs"
 	"github.com/containerd/containerd/snapshots"
-	"github.com/opencontainers/go-digest"
-	"github.com/opencontainers/image-spec/identity"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
-	"golang.org/x/sync/semaphore"
 )
 
 // Image describes an image used by containers
@@ -61,6 +64,10 @@ type Image interface {
 	ContentStore() content.Store
 	// Metadata returns the underlying image metadata
 	Metadata() images.Image
+	// Platform returns the platform match comparer. Can be nil.
+	Platform() platforms.MatchComparer
+	// Spec returns the OCI image spec for a given image.
+	Spec(ctx context.Context) (ocispec.Image, error)
 }
 
 type usageOptions struct {
@@ -276,6 +283,26 @@ func (i *image) IsUnpacked(ctx context.Context, snapshotterName string) (bool, e
 	return false, nil
 }
 
+func (i *image) Spec(ctx context.Context) (ocispec.Image, error) {
+	var ociImage ocispec.Image
+
+	desc, err := i.Config(ctx)
+	if err != nil {
+		return ociImage, fmt.Errorf("get image config descriptor: %w", err)
+	}
+
+	blob, err := content.ReadBlob(ctx, i.ContentStore(), desc)
+	if err != nil {
+		return ociImage, fmt.Errorf("read image config from content store: %w", err)
+	}
+
+	if err := json.Unmarshal(blob, &ociImage); err != nil {
+		return ociImage, fmt.Errorf("unmarshal image config %s: %w", blob, err)
+	}
+
+	return ociImage, nil
+}
+
 // UnpackConfig provides configuration for the unpack of an image
 type UnpackConfig struct {
 	// ApplyOpts for applying a diff to a snapshotter
@@ -285,6 +312,10 @@ type UnpackConfig struct {
 	// CheckPlatformSupported is whether to validate that a snapshotter
 	// supports an image's platform before unpacking
 	CheckPlatformSupported bool
+	// DuplicationSuppressor is used to make sure that there is only one
+	// in-flight fetch request or unpack handler for a given descriptor's
+	// digest or chain ID.
+	DuplicationSuppressor kmutex.KeyedLocker
 }
 
 // UnpackOpt provides configuration for unpack
@@ -294,6 +325,22 @@ type UnpackOpt func(context.Context, *UnpackConfig) error
 func WithSnapshotterPlatformCheck() UnpackOpt {
 	return func(ctx context.Context, uc *UnpackConfig) error {
 		uc.CheckPlatformSupported = true
+		return nil
+	}
+}
+
+// WithUnpackDuplicationSuppressor sets `DuplicationSuppressor` on the UnpackConfig.
+func WithUnpackDuplicationSuppressor(suppressor kmutex.KeyedLocker) UnpackOpt {
+	return func(ctx context.Context, uc *UnpackConfig) error {
+		uc.DuplicationSuppressor = suppressor
+		return nil
+	}
+}
+
+// WithUnpackApplyOpts appends new apply options on the UnpackConfig.
+func WithUnpackApplyOpts(opts ...diff.ApplyOpt) UnpackOpt {
+	return func(ctx context.Context, uc *UnpackConfig) error {
+		uc.ApplyOpts = append(uc.ApplyOpts, opts...)
 		return nil
 	}
 }
@@ -355,10 +402,10 @@ func (i *image) Unpack(ctx context.Context, snapshotterName string, opts ...Unpa
 			cinfo := content.Info{
 				Digest: layer.Blob.Digest,
 				Labels: map[string]string{
-					"containerd.io/uncompressed": layer.Diff.Digest.String(),
+					labels.LabelUncompressed: layer.Diff.Digest.String(),
 				},
 			}
-			if _, err := cs.Update(ctx, cinfo, "labels.containerd.io/uncompressed"); err != nil {
+			if _, err := cs.Update(ctx, cinfo, "labels."+labels.LabelUncompressed); err != nil {
 				return err
 			}
 		}
@@ -397,10 +444,18 @@ func (i *image) getLayers(ctx context.Context, platform platforms.MatchComparer,
 	cs := i.ContentStore()
 	diffIDs, err := i.i.RootFS(ctx, cs, platform)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to resolve rootfs")
+		return nil, fmt.Errorf("failed to resolve rootfs: %w", err)
 	}
-	if len(diffIDs) != len(manifest.Layers) {
-		return nil, errors.Errorf("mismatched image rootfs and manifest layers")
+
+	// parse out the image layers from oci artifact layers
+	imageLayers := []ocispec.Descriptor{}
+	for _, ociLayer := range manifest.Layers {
+		if images.IsLayerType(ociLayer.MediaType) {
+			imageLayers = append(imageLayers, ociLayer)
+		}
+	}
+	if len(diffIDs) != len(imageLayers) {
+		return nil, errors.New("mismatched image rootfs and manifest layers")
 	}
 	layers := make([]rootfs.Layer, len(diffIDs))
 	for i := range diffIDs {
@@ -409,7 +464,7 @@ func (i *image) getLayers(ctx context.Context, platform platforms.MatchComparer,
 			MediaType: ocispec.MediaTypeImageLayer,
 			Digest:    diffIDs[i],
 		}
-		layers[i].Blob = manifest.Layers[i]
+		layers[i].Blob = imageLayers[i]
 	}
 	return layers, nil
 }
@@ -447,4 +502,8 @@ func (i *image) checkSnapshotterSupport(ctx context.Context, snapshotterName str
 
 func (i *image) ContentStore() content.Store {
 	return i.client.ContentStore()
+}
+
+func (i *image) Platform() platforms.MatchComparer {
+	return i.platform
 }

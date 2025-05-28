@@ -14,7 +14,11 @@
 
 package errors
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
 
 // ParseError represents a parsing error
 type ParseError struct {
@@ -35,6 +39,22 @@ func (e *ParseError) Code() int32 {
 	return e.code
 }
 
+// MarshalJSON implements the JSON encoding interface
+func (e ParseError) MarshalJSON() ([]byte, error) {
+	var reason string
+	if e.Reason != nil {
+		reason = e.Reason.Error()
+	}
+	return json.Marshal(map[string]interface{}{
+		"code":    e.code,
+		"message": e.message,
+		"in":      e.In,
+		"name":    e.Name,
+		"value":   e.Value,
+		"reason":  reason,
+	})
+}
+
 const (
 	parseErrorTemplContent     = `parsing %s %s from %q failed, because %s`
 	parseErrorTemplContentNoIn = `parsing %s from %q failed, because %s`
@@ -49,7 +69,7 @@ func NewParseError(name, in, value string, reason error) *ParseError {
 		msg = fmt.Sprintf(parseErrorTemplContent, name, in, value, reason)
 	}
 	return &ParseError{
-		code:    400,
+		code:    http.StatusBadRequest,
 		Name:    name,
 		In:      in,
 		Value:   value,
