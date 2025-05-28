@@ -38,4 +38,4 @@ RUN cp ${VMLINUX_PATH} /boot/vmlinux-${KERNEL_VERSION}${KERNEL_EXTRA} && \
 
 FROM scratch
 COPY --from=builder /boot /boot
-COPY --from=builder /lib/modules /lib/modules
+# COPY --from=builder /lib/modules /lib/modules
