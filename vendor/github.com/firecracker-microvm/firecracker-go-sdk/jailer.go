@@ -17,10 +17,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -81,6 +83,9 @@ type JailerConfig struct {
 	// ChrootStrategy will dictate how files are transfered to the root drive.
 	ChrootStrategy HandlersAdapter
 
+	// CgroupVersion is the version of the cgroup filesystem to use.
+	CgroupVersion string
+
 	// Stdout specifies the IO writer for STDOUT to use when spawning the jailer.
 	Stdout io.Writer
 	// Stderr specifies the IO writer for STDERR to use when spawning the jailer.
@@ -104,6 +109,7 @@ type JailerCommandBuilder struct {
 	netNS           string
 	daemonize       bool
 	firecrackerArgs []string
+	cgroupVersion   string
 
 	stdin  io.Reader
 	stdout io.Writer
@@ -116,6 +122,14 @@ func NewJailerCommandBuilder() JailerCommandBuilder {
 	return JailerCommandBuilder{}.WithBin(defaultJailerBin)
 }
 
+// getNumaCpuset returns the CPU list assigned to a NUMA node
+func getNumaCpuset(node int) string {
+	if cpus, err := ioutil.ReadFile(fmt.Sprintf("/sys/devices/system/node/node%d/cpulist", node)); err == nil {
+		return strings.TrimSuffix(string(cpus), "\n")
+	}
+	return ""
+}
+
 // Args returns the specified set of args to be used
 // in command construction.
 func (b JailerCommandBuilder) Args() []string {
@@ -124,7 +138,15 @@ func (b JailerCommandBuilder) Args() []string {
 	args = append(args, "--uid", strconv.Itoa(b.uid))
 	args = append(args, "--gid", strconv.Itoa(b.gid))
 	args = append(args, "--exec-file", b.execFile)
-	args = append(args, "--node", strconv.Itoa(b.node))
+
+	if cpulist := getNumaCpuset(b.node); len(cpulist) > 0 {
+		args = append(args, "--cgroup", fmt.Sprintf("cpuset.mems=%d", b.node))
+		args = append(args, "--cgroup", fmt.Sprintf("cpuset.cpus=%s", cpulist))
+	}
+
+	if len(b.cgroupVersion) > 0 {
+		args = append(args, "--cgroup-version", b.cgroupVersion)
+	}
 
 	if len(b.chrootBaseDir) > 0 {
 		args = append(args, "--chroot-base-dir", b.chrootBaseDir)
@@ -257,6 +279,12 @@ func (b JailerCommandBuilder) WithFirecrackerArgs(args ...string) JailerCommandB
 	return b
 }
 
+// WithCgroupVersion specifies which cgroup version to use
+func (b JailerCommandBuilder) WithCgroupVersion(version string) JailerCommandBuilder {
+	b.cgroupVersion = version
+	return b
+}
+
 // Build will build a jailer command.
 func (b JailerCommandBuilder) Build(ctx context.Context) *exec.Cmd {
 	cmd := exec.CommandContext(
@@ -309,6 +337,9 @@ func jail(ctx context.Context, m *Machine, cfg *Config) error {
 		stderr = os.Stderr
 	}
 
+	fcArgs := seccompArgs(cfg)
+	fcArgs = append(fcArgs, "--api-sock", machineSocketPath)
+
 	builder := NewJailerCommandBuilder().
 		WithID(cfg.JailerCfg.ID).
 		WithUID(*cfg.JailerCfg.UID).
@@ -317,10 +348,8 @@ func jail(ctx context.Context, m *Machine, cfg *Config) error {
 		WithExecFile(cfg.JailerCfg.ExecFile).
 		WithChrootBaseDir(cfg.JailerCfg.ChrootBaseDir).
 		WithDaemonize(cfg.JailerCfg.Daemonize).
-		WithFirecrackerArgs(
-			"--seccomp-level", cfg.SeccompLevel.String(),
-			"--api-sock", machineSocketPath,
-		).
+		WithCgroupVersion(cfg.JailerCfg.CgroupVersion).
+		WithFirecrackerArgs(fcArgs...).
 		WithStdout(stdout).
 		WithStderr(stderr)
 
@@ -373,7 +402,7 @@ func LinkFilesHandler(kernelImageFileName string) Handler {
 
 			initrdFilename := ""
 			if m.Cfg.InitrdPath != "" {
-				initrdFilename := filepath.Base(m.Cfg.InitrdPath)
+				initrdFilename = filepath.Base(m.Cfg.InitrdPath)
 				// copy initrd to root fs
 				if err := os.Link(
 					m.Cfg.InitrdPath,

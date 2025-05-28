@@ -21,7 +21,6 @@ import (
 	"io"
 
 	"github.com/containerd/containerd/errdefs"
-	"github.com/pkg/errors"
 )
 
 /*
@@ -46,7 +45,6 @@ field     := quoted | [A-Za-z] [A-Za-z0-9_]+
 operator  := "==" | "!=" | "~="
 value     := quoted | [^\s,]+
 quoted    := <go string syntax>
-
 */
 func Parse(s string) (Filter, error) {
 	// special case empty to match all
@@ -71,7 +69,7 @@ func ParseAll(ss ...string) (Filter, error) {
 	for _, s := range ss {
 		f, err := Parse(s)
 		if err != nil {
-			return nil, errors.Wrap(errdefs.ErrInvalidArgument, err.Error())
+			return nil, fmt.Errorf("%s: %w", err.Error(), errdefs.ErrInvalidArgument)
 		}
 
 		fs = append(fs, f)
@@ -90,7 +88,7 @@ func (p *parser) parse() (Filter, error) {
 
 	ss, err := p.selectors()
 	if err != nil {
-		return nil, errors.Wrap(err, "filters")
+		return nil, fmt.Errorf("filters: %w", err)
 	}
 
 	return ss, nil
@@ -123,7 +121,7 @@ loop:
 		case tokenEOF:
 			break loop
 		default:
-			return nil, p.mkerr(p.scanner.ppos, "unexpected input: %v", string(tok))
+			return nil, p.mkerrf(p.scanner.ppos, "unexpected input: %v", string(tok))
 		}
 	}
 
@@ -228,7 +226,7 @@ func (p *parser) operator() (operator, error) {
 		case "~=":
 			return operatorMatches, nil
 		default:
-			return 0, p.mkerr(pos, "unsupported operator %q", s)
+			return 0, p.mkerrf(pos, "unsupported operator %q", s)
 		}
 	case tokenIllegal:
 		return 0, p.mkerr(pos, p.scanner.err)
@@ -259,7 +257,7 @@ func (p *parser) unquote(pos int, s string, allowAlts bool) (string, error) {
 
 	uq, err := unquote(s)
 	if err != nil {
-		return "", p.mkerr(pos, "unquoting failed: %v", err)
+		return "", p.mkerrf(pos, "unquoting failed: %v", err)
 	}
 
 	return uq, nil
@@ -283,10 +281,14 @@ func (pe parseError) Error() string {
 	return fmt.Sprintf("[%s]: %v", pe.input, pe.msg)
 }
 
-func (p *parser) mkerr(pos int, format string, args ...interface{}) error {
-	return errors.Wrap(parseError{
+func (p *parser) mkerrf(pos int, format string, args ...interface{}) error {
+	return p.mkerr(pos, fmt.Sprintf(format, args...))
+}
+
+func (p *parser) mkerr(pos int, msg string) error {
+	return fmt.Errorf("parse error: %w", parseError{
 		input: p.input,
 		pos:   pos,
-		msg:   fmt.Sprintf(format, args...),
-	}, "parse error")
+		msg:   msg,
+	})
 }

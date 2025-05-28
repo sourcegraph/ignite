@@ -20,10 +20,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 
 	winio "github.com/Microsoft/go-winio"
-	"github.com/containerd/containerd/log"
-	"github.com/pkg/errors"
+	"github.com/containerd/log"
 )
 
 const pipeRoot = `\\.\pipe`
@@ -54,7 +54,7 @@ func copyIO(fifos *FIFOSet, ioset *Streams) (_ *cio, retErr error) {
 	if fifos.Stdin != "" {
 		l, err := winio.ListenPipe(fifos.Stdin, nil)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create stdin pipe %s", fifos.Stdin)
+			return nil, fmt.Errorf("failed to create stdin pipe %s: %w", fifos.Stdin, err)
 		}
 		cios.closers = append(cios.closers, l)
 
@@ -77,7 +77,7 @@ func copyIO(fifos *FIFOSet, ioset *Streams) (_ *cio, retErr error) {
 	if fifos.Stdout != "" {
 		l, err := winio.ListenPipe(fifos.Stdout, nil)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create stdout pipe %s", fifos.Stdout)
+			return nil, fmt.Errorf("failed to create stdout pipe %s: %w", fifos.Stdout, err)
 		}
 		cios.closers = append(cios.closers, l)
 
@@ -100,7 +100,7 @@ func copyIO(fifos *FIFOSet, ioset *Streams) (_ *cio, retErr error) {
 	if fifos.Stderr != "" {
 		l, err := winio.ListenPipe(fifos.Stderr, nil)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create stderr pipe %s", fifos.Stderr)
+			return nil, fmt.Errorf("failed to create stderr pipe %s: %w", fifos.Stderr, err)
 		}
 		cios.closers = append(cios.closers, l)
 
@@ -154,5 +154,44 @@ func NewDirectIOFromFIFOSet(ctx context.Context, stdin io.WriteCloser, stdout, s
 			closers: append(pipes.closers(), fifos),
 			cancel:  cancel,
 		},
+	}
+}
+
+// TerminalLogURI provides the raw logging URI
+// as well as sets the terminal option to true.
+func TerminalLogURI(uri *url.URL) Creator {
+	return func(_ string) (IO, error) {
+		return &logURI{
+			config: Config{
+				Terminal: true,
+				Stdout:   uri.String(),
+
+				// Windows HCSShim requires that stderr is an empty string when using terminal.
+				// https://github.com/microsoft/hcsshim/blob/200feabd854da69f615a598ed6a1263ce9531676/cmd/containerd-shim-runhcs-v1/service_internal.go#L127
+				Stderr: "",
+			},
+		}, nil
+	}
+}
+
+// TerminalBinaryIO forwards container STDOUT|STDERR directly to a logging binary
+// It also sets the terminal option to true
+func TerminalBinaryIO(binary string, args map[string]string) Creator {
+	return func(_ string) (IO, error) {
+		uri, err := LogURIGenerator("binary", binary, args)
+		if err != nil {
+			return nil, err
+		}
+
+		return &logURI{
+			config: Config{
+				Terminal: true,
+				Stdout:   uri.String(),
+
+				// Windows HCSShim requires that stderr is an empty string when using terminal.
+				// https://github.com/microsoft/hcsshim/blob/200feabd854da69f615a598ed6a1263ce9531676/cmd/containerd-shim-runhcs-v1/service_internal.go#L127
+				Stderr: "",
+			},
+		}, nil
 	}
 }

@@ -22,11 +22,12 @@ import (
 	"time"
 
 	v1 "github.com/containerd/containerd/api/services/ttrpc/events/v1"
+	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/ttrpcutil"
+	"github.com/containerd/containerd/protobuf"
 	"github.com/containerd/ttrpc"
-	"github.com/containerd/typeurl"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,7 +37,7 @@ const (
 )
 
 type item struct {
-	ev    *v1.Envelope
+	ev    *types.Envelope
 	ctx   context.Context
 	count int
 }
@@ -110,13 +111,13 @@ func (l *RemoteEventsPublisher) Publish(ctx context.Context, topic string, event
 	if err != nil {
 		return err
 	}
-	any, err := typeurl.MarshalAny(event)
+	any, err := protobuf.MarshalAnyToProto(event)
 	if err != nil {
 		return err
 	}
 	i := &item{
-		ev: &v1.Envelope{
-			Timestamp: time.Now(),
+		ev: &types.Envelope{
+			Timestamp: protobuf.ToTimestamp(time.Now()),
 			Namespace: ns,
 			Topic:     topic,
 			Event:     any,

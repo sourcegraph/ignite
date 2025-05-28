@@ -16,17 +16,41 @@ CARGO_CACHE_VOLUME_NAME?=firecracker-go-sdk--cargocache
 DISABLE_ROOT_TESTS?=1
 DOCKER_IMAGE_TAG?=latest
 EXTRAGOARGS:=
-FIRECRACKER_BUILDER_NAME=firecracker-builder
-FIRECRACKER_BIN=testdata/firecracker-master
-JAILER_BIN=testdata/jailer-master
+FIRECRACKER_DIR=build/firecracker
 FIRECRACKER_TARGET?=x86_64-unknown-linux-musl
+
+FC_TEST_DATA_PATH?=testdata
+FC_TEST_BIN_PATH:=$(FC_TEST_DATA_PATH)/bin
+FIRECRACKER_BIN=$(FC_TEST_DATA_PATH)/firecracker-main
+JAILER_BIN=$(FC_TEST_DATA_PATH)/jailer-main
 
 UID = $(shell id -u)
 GID = $(shell id -g)
 
+firecracker_version=v1.0.0
+arch=$(shell uname -m)
+
 # The below files are needed and can be downloaded from the internet
-testdata_objects = testdata/vmlinux testdata/root-drive.img testdata/firecracker testdata/jailer
-firecracker_version = v0.22.0
+release_url=https://github.com/firecracker-microvm/firecracker/releases/download/$(firecracker_version)/firecracker-$(firecracker_version)-$(arch).tgz
+
+testdata_objects = \
+$(FC_TEST_DATA_PATH)/vmlinux \
+$(FC_TEST_DATA_PATH)/root-drive.img \
+$(FC_TEST_DATA_PATH)/jailer \
+$(FC_TEST_DATA_PATH)/firecracker \
+$(FC_TEST_DATA_PATH)/ltag \
+$(FC_TEST_BIN_PATH)/ptp \
+$(FC_TEST_BIN_PATH)/host-local \
+$(FC_TEST_BIN_PATH)/static \
+$(FC_TEST_BIN_PATH)/tc-redirect-tap
+
+# Enable pulling of artifacts from S3 instead of building
+# TODO: https://github.com/firecracker-microvm/firecracker-go-sdk/issues/418
+ifeq ($(GID), 0)
+testdata_objects += $(FC_TEST_DATA_PATH)/root-drive-with-ssh.img $(FC_TEST_DATA_PATH)/root-drive-ssh-key
+endif
+
+testdata_dir = testdata/firecracker.tgz testdata/firecracker_spec-$(firecracker_version).yaml testdata/LICENSE testdata/NOTICE testdata/THIRD-PARTY
 
 # --location is needed to follow redirects on github.com
 curl = curl --location
@@ -35,15 +59,11 @@ all: build
 
 test: all-tests
 
-unit-tests: $(testdata_objects) check-kvm
+unit-tests: $(testdata_objects)
 	DISABLE_ROOT_TESTS=$(DISABLE_ROOT_TESTS) go test -short ./... $(EXTRAGOARGS)
 
-all-tests: $(testdata_objects) check-kvm
+all-tests: $(testdata_objects)
 	DISABLE_ROOT_TESTS=$(DISABLE_ROOT_TESTS) go test ./... $(EXTRAGOARGS)
-
-check-kvm:
-	@test -w /dev/kvm || \
-		(echo "In order to run firecracker, $(shell whoami) must have write permission to /dev/kvm"; false)
 
 generate build clean::
 	go $@ $(EXTRAGOARGS)
@@ -53,54 +73,77 @@ clean::
 
 distclean: clean
 	rm -rf $(testdata_objects)
+	rm -f $(FC_TEST_DATA_PATH)/fc.stamp
+	rm -rfv $(testdata_dir)
 	docker volume rm -f $(CARGO_CACHE_VOLUME_NAME)
 
-testdata/vmlinux:
-	$(curl) -o $@ https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin
+deps: $(testdata_objects)
 
-testdata/firecracker:
-	$(curl) -o $@ https://github.com/firecracker-microvm/firecracker/releases/download/$(firecracker_version)/firecracker-$(firecracker_version)-x86_64
-	chmod +x $@
+$(FC_TEST_DATA_PATH)/vmlinux:
+	$(curl) -o $@ https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/$(arch)/kernels/vmlinux.bin
 
-testdata/jailer:
-	$(curl) -o $@ https://github.com/firecracker-microvm/firecracker/releases/download/$(firecracker_version)/jailer-$(firecracker_version)-x86_64
-	chmod +x $@
+$(FC_TEST_DATA_PATH)/firecracker $(FC_TEST_DATA_PATH)/jailer: $(FC_TEST_DATA_PATH)/fc.stamp
 
-testdata/root-drive.img:
+$(FC_TEST_DATA_PATH)/fc.stamp:
+	$(curl) ${release_url} | tar -xvzf - -C $(FC_TEST_DATA_PATH)
+	mv $(FC_TEST_DATA_PATH)/release-$(firecracker_version)-$(arch)/firecracker-$(firecracker_version)-$(arch) $(FC_TEST_DATA_PATH)/firecracker
+	mv $(FC_TEST_DATA_PATH)/release-$(firecracker_version)-$(arch)/jailer-$(firecracker_version)-$(arch) $(FC_TEST_DATA_PATH)/jailer
+	touch $@
+
+$(FC_TEST_DATA_PATH)/root-drive.img:
 	$(curl) -o $@ https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4
 
-tools/firecracker-builder-stamp: tools/docker/Dockerfile
-	docker build \
-		-t localhost/$(FIRECRACKER_BUILDER_NAME):$(DOCKER_IMAGE_TAG) \
-		-f tools/docker/Dockerfile \
-		tools/docker
-	touch $@
+$(FC_TEST_DATA_PATH)/root-drive-ssh-key $(FC_TEST_DATA_PATH)/root-drive-with-ssh.img: 
+# Need root to move ssh key to testdata location
+ifeq ($(GID), 0)
+	$(MAKE) $(FIRECRACKER_DIR)
+	$(FIRECRACKER_DIR)/tools/devtool build_rootfs
+	cp $(FIRECRACKER_DIR)/build/rootfs/bionic.rootfs.ext4 $(FC_TEST_DATA_PATH)/root-drive-with-ssh.img
+	cp $(FIRECRACKER_DIR)/build/rootfs/ssh/id_rsa $(FC_TEST_DATA_PATH)/root-drive-ssh-key
+	rm -rf $(FIRECRACKER_DIR)
+else
+	$(error unable to place ssh key without root permissions)
+endif
+
+$(FC_TEST_BIN_PATH)/ptp:
+	GO111MODULE=off GOBIN=$(abspath $(FC_TEST_BIN_PATH)) \
+	go get github.com/containernetworking/plugins/plugins/main/ptp
+
+$(FC_TEST_BIN_PATH)/host-local:
+	GO111MODULE=off GOBIN=$(abspath $(FC_TEST_BIN_PATH)) \
+	go get github.com/containernetworking/plugins/plugins/ipam/host-local
+
+$(FC_TEST_BIN_PATH)/static:
+	GO111MODULE=off GOBIN=$(abspath $(FC_TEST_BIN_PATH)) \
+	go get github.com/containernetworking/plugins/plugins/ipam/static
+
+$(FC_TEST_BIN_PATH)/tc-redirect-tap:
+	GO111MODULE=off GOBIN=$(abspath $(FC_TEST_BIN_PATH)) \
+	go get github.com/awslabs/tc-redirect-tap/cmd/tc-redirect-tap
+
+$(FC_TEST_DATA_PATH)/ltag:
+	GO111MODULE=on GOBIN=$(abspath $(FC_TEST_BIN_PATH)) \
+	go get github.com/kunalkushwaha/ltag@v0.2.3
+
+$(FIRECRACKER_DIR):
+	- git clone https://github.com/firecracker-microvm/firecracker.git $(FIRECRACKER_DIR)
 
 .PHONY: test-images
 test-images: $(FIRECRACKER_BIN) $(JAILER_BIN)
 
-$(FIRECRACKER_BIN) $(JAILER_BIN): tools/firecracker-builder-stamp
-	mkdir -p build
-	docker run --rm -it \
-		--user $(UID):$(GID) \
-		--volume $(CURDIR)/build:/artifacts \
-		--volume $(CARGO_CACHE_VOLUME_NAME):/usr/local/cargo/registry \
-		-e HOME=/tmp \
-		--workdir=/firecracker \
-		localhost/$(FIRECRACKER_BUILDER_NAME):$(DOCKER_IMAGE_TAG) \
-		cargo build --release \
-		--target-dir=/artifacts --target $(FIRECRACKER_TARGET) \
-		-p firecracker -p jailer
-	cp build/$(FIRECRACKER_TARGET)/release/firecracker $(FIRECRACKER_BIN)
-	cp build/$(FIRECRACKER_TARGET)/release/jailer $(JAILER_BIN)
+$(FIRECRACKER_BIN) $(JAILER_BIN): $(FIRECRACKER_DIR)
+	$(FIRECRACKER_DIR)/tools/devtool -y build --release && \
+		$(FIRECRACKER_DIR)/tools/devtool strip
+	cp $(FIRECRACKER_DIR)/build/cargo_target/$(FIRECRACKER_TARGET)/release/firecracker $(FIRECRACKER_BIN)
+	cp $(FIRECRACKER_DIR)/build/cargo_target/$(FIRECRACKER_TARGET)/release/jailer $(JAILER_BIN)
 
 .PHONY: firecracker-clean
 firecracker-clean:
-	- docker run --rm -it \
-		--user $(UID):$(GID) \
-		--workdir /firecracker\
-		localhost/$(FIRECRACKER_BUILDER_NAME):$(DOCKER_IMAGE_TAG) \
-		cargo clean
+	- $(FIRECRACKER_DIR)/tools/devtool distclean
 	- rm $(FIRECRACKER_BIN) $(JAILER_BIN)
+
+lint: deps
+	gofmt -s -l .
+	$(FC_TEST_DATA_PATH)/bin/ltag -check -v -t .headers
 
 .PHONY: all generate clean distclean build test unit-tests all-tests check-kvm
