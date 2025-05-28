@@ -12,7 +12,6 @@ import (
 
 	"github.com/containerd/containerd/remotes/docker"
 	refdocker "github.com/distribution/reference"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	cont "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -76,7 +75,11 @@ func (dc *dockerClient) PullImage(img meta.OCIImageRef) (err error) {
 	}
 	if authCreds != nil {
 		// Encode the credentials and set it in the pull options.
-		authConfig := types.AuthConfig{}
+		type AuthConfig struct {
+			Username string `json:"username,omitempty"`
+			Password string `json:"password,omitempty"`
+		}
+		authConfig := AuthConfig{}
 		authConfig.Username, authConfig.Password, err = authCreds(refDomain)
 		if err != nil {
 			return err
