@@ -165,6 +165,9 @@ build-all-%:
 	$(MAKE) GOARCH=$* $(BINARIES)
 
 release: build-all
+	$(MAKE) release-only
+
+release-only:
 ifneq ($(IS_DIRTY),0)
 	$(error "cannot release dirty tree")
 endif
