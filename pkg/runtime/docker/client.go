@@ -10,11 +10,10 @@ import (
 	"net"
 	"time"
 
-	refdocker "github.com/containerd/containerd/reference/docker"
 	"github.com/containerd/containerd/remotes/docker"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
+	refdocker "github.com/distribution/reference"
 	cont "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
 	log "github.com/sirupsen/logrus"
@@ -51,13 +50,13 @@ func GetDockerClient() (*dockerClient, error) {
 	}, nil
 }
 
-func (dc *dockerClient) PullImage(image meta.OCIImageRef) (err error) {
+func (dc *dockerClient) PullImage(img meta.OCIImageRef) (err error) {
 	var rc io.ReadCloser
 
-	opts := types.ImagePullOptions{}
+	opts := image.PullOptions{}
 
 	// Get the domain name from the image.
-	named, err := refdocker.ParseDockerRef(image.String())
+	named, err := refdocker.ParseDockerRef(img.String())
 	if err != nil {
 		return err
 	}
@@ -74,8 +73,12 @@ func (dc *dockerClient) PullImage(image meta.OCIImageRef) (err error) {
 		return err
 	}
 	if authCreds != nil {
+		type AuthConfig struct {
+			Username string `json:"username,omitempty"`
+			Password string `json:"password,omitempty"`
+		}
 		// Encode the credentials and set it in the pull options.
-		authConfig := types.AuthConfig{}
+		authConfig := AuthConfig{}
 		authConfig.Username, authConfig.Password, err = authCreds(refDomain)
 		if err != nil {
 			return err
@@ -88,7 +91,7 @@ func (dc *dockerClient) PullImage(image meta.OCIImageRef) (err error) {
 		opts.RegistryAuth = authStr
 	}
 
-	if rc, err = dc.client.ImagePull(context.Background(), image.Normalized(), opts); err == nil {
+	if rc, err = dc.client.ImagePull(context.Background(), img.Normalized(), opts); err == nil {
 		// Don't output the pull command
 		defer util.DeferErr(&err, rc.Close)
 		_, err = io.Copy(ioutil.Discard, rc)
@@ -128,7 +131,7 @@ func (dc *dockerClient) InspectImage(image meta.OCIImageRef) (*runtime.ImageInsp
 }
 
 func (dc *dockerClient) ExportImage(image meta.OCIImageRef) (r io.ReadCloser, cleanup func() error, err error) {
-	config, err := dc.client.ContainerCreate(context.Background(), &container.Config{
+	config, err := dc.client.ContainerCreate(context.Background(), &cont.Config{
 		Cmd:   []string{"sh"}, // We need a temporary command, this doesn't need to exist in the image
 		Image: image.Normalized(),
 	}, nil, nil, nil, "")
@@ -179,9 +182,9 @@ func (dc *dockerClient) RunContainer(image meta.OCIImageRef, config *runtime.Con
 		binds = append(binds, fmt.Sprintf("%s:%s", bind.HostPath, bind.ContainerPath))
 	}
 
-	devices := make([]container.DeviceMapping, 0, len(config.Devices))
+	devices := make([]cont.DeviceMapping, 0, len(config.Devices))
 	for _, device := range config.Devices {
-		devices = append(devices, container.DeviceMapping{
+		devices = append(devices, cont.DeviceMapping{
 			PathOnHost:        device.HostPath,
 			PathInContainer:   device.ContainerPath,
 			CgroupPermissions: "rwm",
@@ -191,7 +194,7 @@ func (dc *dockerClient) RunContainer(image meta.OCIImageRef, config *runtime.Con
 	stopTimeout := int(config.StopTimeout)
 	bindings, exposed := portBindingsToDocker(config.PortBindings)
 
-	c, err := dc.client.ContainerCreate(context.Background(), &container.Config{
+	c, err := dc.client.ContainerCreate(context.Background(), &cont.Config{
 		Hostname:     config.Hostname,
 		ExposedPorts: exposed,
 		Tty:          true, // --tty
@@ -201,13 +204,13 @@ func (dc *dockerClient) RunContainer(image meta.OCIImageRef, config *runtime.Con
 		Labels:       config.Labels,
 		Env:          config.EnvVars,
 		StopTimeout:  &stopTimeout,
-	}, &container.HostConfig{
+	}, &cont.HostConfig{
 		Binds:        binds,
-		NetworkMode:  container.NetworkMode(config.NetworkMode),
+		NetworkMode:  cont.NetworkMode(config.NetworkMode),
 		PortBindings: bindings,
 		AutoRemove:   config.AutoRemove,
 		CapAdd:       config.CapAdds,
-		Resources: container.Resources{
+		Resources: cont.Resources{
 			Devices: devices,
 		},
 	}, nil, nil, name)
@@ -215,7 +218,7 @@ func (dc *dockerClient) RunContainer(image meta.OCIImageRef, config *runtime.Con
 		return "", err
 	}
 
-	return c.ID, dc.client.ContainerStart(context.Background(), c.ID, types.ContainerStartOptions{})
+	return c.ID, dc.client.ContainerStart(context.Background(), c.ID, cont.StartOptions{})
 }
 
 func (dc *dockerClient) StopContainer(container string, timeout *time.Duration) error {
@@ -226,7 +229,10 @@ func (dc *dockerClient) StopContainer(container string, timeout *time.Duration) 
 	}()
 	<-readyC // wait until removal detection has started
 
-	if err := dc.client.ContainerStop(context.Background(), container, timeout); err != nil {
+	timeoutSeconds := int(timeout.Seconds())
+	if err := dc.client.ContainerStop(context.Background(), container, cont.StopOptions{
+		Timeout: &timeoutSeconds,
+	}); err != nil {
 		// If the container is not found, return nil, no-op.
 		if errdefs.IsNotFound(err) {
 			log.Warn(err)
@@ -271,7 +277,7 @@ func (dc *dockerClient) RemoveContainer(container string) error {
 	}()
 
 	<-readyC // The ready channel is used to wait until removal detection has started
-	if err := dc.client.ContainerRemove(context.Background(), container, types.ContainerRemoveOptions{}); err != nil {
+	if err := dc.client.ContainerRemove(context.Background(), container, cont.RemoveOptions{}); err != nil {
 		// If the container is not found, return nil, no-op.
 		if errdefs.IsNotFound(err) {
 			log.Warn(err)
@@ -285,7 +291,7 @@ func (dc *dockerClient) RemoveContainer(container string) error {
 }
 
 func (dc *dockerClient) ContainerLogs(container string) (io.ReadCloser, error) {
-	return dc.client.ContainerLogs(context.Background(), container, types.ContainerLogsOptions{
+	return dc.client.ContainerLogs(context.Background(), container, cont.LogsOptions{
 		ShowStdout: true, // We only need stdout, as TTY mode merges stderr into it
 	})
 }
