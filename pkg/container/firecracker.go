@@ -61,7 +61,7 @@ func ExecuteFirecracker(vm *api.VM, fcIfaces firecracker.NetworkInterfaces) (err
 		MachineCfg: models.MachineConfiguration{
 			VcpuCount:  &vCPUCount,
 			MemSizeMib: &memSizeMib,
-			HtEnabled:  firecracker.Bool(true),
+			Smt:        firecracker.Bool(true),
 		},
 		//JailerCfg: firecracker.JailerConfig{
 		//	GID:      firecracker.Int(0),
