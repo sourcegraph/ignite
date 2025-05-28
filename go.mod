@@ -15,12 +15,12 @@ require (
 	github.com/containernetworking/plugins v1.7.1
 	github.com/containers/image v3.0.2+incompatible
 	github.com/coreos/go-iptables v0.8.0
+	github.com/distribution/reference v0.6.0
 	github.com/docker/cli v24.0.0+incompatible
 	github.com/docker/docker v27.1.1+incompatible
 	github.com/docker/go-connections v0.4.0
 	github.com/firecracker-microvm/firecracker-go-sdk v1.0.1-0.20250516204629-6f382b52ea2a
 	github.com/freddierice/go-losetup v0.0.0-20170407175016-fc9adea44124
-	github.com/go-openapi/spec v0.21.0
 	github.com/goombaio/namegenerator v0.0.0-20181006234301-989e774b106e
 	github.com/krolaw/dhcp4 v0.0.0-20190909130307-a50d88189771
 	github.com/lithammer/dedent v1.1.0
@@ -71,7 +71,6 @@ require (
 	github.com/containernetworking/cni v1.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -90,6 +89,7 @@ require (
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/loads v0.22.0 // indirect
 	github.com/go-openapi/runtime v0.28.0 // indirect
+	github.com/go-openapi/spec v0.21.0 // indirect
 	github.com/go-openapi/strfmt v0.23.0 // indirect
 	github.com/go-openapi/swag v0.23.1 // indirect
 	github.com/go-openapi/validate v0.24.0 // indirect
