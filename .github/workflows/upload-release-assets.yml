@@ -22,13 +22,13 @@ jobs:
   build-and-upload:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4.2.2
         with:
           ref: ${{ env.REL_TAG }}
       - name: Build binaries
         run: make build-all
       - name: Login to container registry
-        uses: docker/login-action@v1.14.1
+        uses: docker/login-action@v3.4.0
         with:
           registry: docker.io
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -43,7 +43,7 @@ jobs:
           cp bin/releases/${{ env.REL_TAG }}/arm64/ignite release/ignite-arm64
           cp bin/releases/${{ env.REL_TAG }}/arm64/ignited release/ignited-arm64
       - name: Upload assets
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@v2.9.0
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ env.REL_TAG }}
