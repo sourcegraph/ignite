@@ -1,4 +1,4 @@
-FROM docker.io/weaveworks/ignite-kernel-builder:dev AS builder
+FROM weaveworks/ignite-kernel-builder:dev AS builder
 
 # Set up environment variables
 ENV CCACHE_DIR=/ccache       \
