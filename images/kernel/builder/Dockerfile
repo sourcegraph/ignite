@@ -1,6 +1,6 @@
-FROM ubuntu:18.04 AS builder
+FROM ubuntu:24.04 AS builder
 
-ARG GCC_VERSION="gcc-7"
+ARG GCC_VERSION="gcc-14"
 
 # Install dependencies
 RUN apt-get update -y && \
