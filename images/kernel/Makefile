@@ -2,7 +2,7 @@ SHELL:=/bin/bash
 
 # Set the command for running `docker`
 # -- allows user to override for things like sudo usage or container images 
-DOCKER := podman
+DOCKER := docker
 
 REGISTRY?=weaveworks
 IMAGE_NAME?=${REGISTRY}/ignite-kernel
