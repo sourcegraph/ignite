@@ -29,9 +29,7 @@ kernel-builder:
 	$(DOCKER) build --platform linux/$(GOARCH) -t ${KERNEL_BUILDER_NAME}:dev \
 		-f builder/Dockerfile .
 
-upgrade: $(addprefix upgrade-,$(KERNEL_VERSIONS))
-
-upgrade-%: kernel-builder
+upgrade: kernel-builder
 	mkdir -p upstream generated
 	for upstream in upstream/*; do \
 		config="$$(basename $$upstream)"; \
