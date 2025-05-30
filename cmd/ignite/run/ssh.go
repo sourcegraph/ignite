@@ -8,7 +8,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/alessio/shellescape"
+	"al.essio.dev/pkg/shellescape"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	terminal "golang.org/x/term"
