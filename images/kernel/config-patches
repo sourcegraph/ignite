@@ -24,7 +24,9 @@ CONFIG_DUMMY=y
 CONFIG_VXLAN=y
 # Enable support for soft shutdown of amd64 VMs
 # See https://github.com/firecracker-microvm/firecracker/blob/main/docs/api_requests/actions.md#sendctrlaltdel
+CONFIG_INPUT_KEYBOARD=y
 CONFIG_KEYBOARD_ATKBD=y
+
 CONFIG_SERIO=y
 CONFIG_SERIO_I8042=y
 CONFIG_SERIO_LIBPS2=y
