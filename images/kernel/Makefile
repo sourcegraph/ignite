@@ -6,7 +6,7 @@ DOCKER := podman
 
 REGISTRY?=weaveworks
 IMAGE_NAME?=${REGISTRY}/ignite-kernel
-KERNEL_BUILDER_NAME=docker.io/weaveworks/ignite-kernel-builder
+KERNEL_BUILDER_NAME=weaveworks/ignite-kernel-builder
 
 # Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates
 KERNEL_VERSIONS ?= 5.10.135 6.1.140 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
