@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -xeo pipefail
+
 OLD_FILE="${1}"
 NEW_FILE="${2}"
 # The path to where the "patch instructions" are
@@ -16,7 +18,7 @@ set_kernel_config() {
     local FILE=${3}
     
     if grep -q "${TGT}" ${FILE}; then
-        sed "s/^\(${TGT}=.*\|# ${TGT} is not set\)/${TGT}=${REP}/" ${FILE} > ${FILE}.replaced
+        sed -E "s/^(${TGT}=.*|# ${TGT} is not set)/${TGT}=${REP}/" ${FILE} > ${FILE}.replaced
         mv ${FILE}.replaced ${FILE}
     else
         echo "${TGT}=${REP}" >> ${FILE}
