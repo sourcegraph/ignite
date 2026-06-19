@@ -1,7 +1,7 @@
 SHELL:=/bin/bash
 
 # Set the command for running `docker`
-# -- allows user to override for things like sudo usage or container images 
+# -- allows user to override for things like sudo usage or container images
 DOCKER := docker
 
 REGISTRY?=weaveworks
@@ -9,7 +9,7 @@ IMAGE_NAME?=${REGISTRY}/ignite-kernel
 KERNEL_BUILDER_NAME=weaveworks/ignite-kernel-builder
 
 # Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates
-KERNEL_VERSIONS ?= 5.10.135 6.1.140 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
+KERNEL_VERSIONS ?= 5.10.135 6.1.140 6.18.35 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
 GOARCH?=amd64
 GOARCH_LIST = amd64 # arm64
 
