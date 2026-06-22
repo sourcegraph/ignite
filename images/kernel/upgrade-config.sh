@@ -36,6 +36,6 @@ docker run --rm -i ${DOCKER_TTY} \
         set -xe
         test -d ./${VERSION} || git clone --depth 1 --branch v${VERSION} ${LINUX_REPO_URL} ./${VERSION}
         cd ./${VERSION}
-        make clean && make mrproper && cp /tmp/.config .
+        cp /tmp/.config .config
         make EXTRAVERSION="" LOCALVERSION= olddefconfig
         cp .config /tmp/.config"

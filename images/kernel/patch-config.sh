@@ -14,23 +14,30 @@ PATCH_FILE="${3}"
 set_kernel_config() {
     # flag as $1, value to set as $2, config file as $3
     local TGT="CONFIG_${1#CONFIG_}"
-    local REP="${2//\//\\/}"
-    local FILE=${3}
+    local VALUE="${2}"
+    local REP="${VALUE//\//\\/}"
+    REP="${REP//&/\\&}"
+    local FILE="${3}"
 
-    if grep -q "${TGT}" ${FILE}; then
-        sed -E "s/^(${TGT}=.*|# ${TGT} is not set)/${TGT}=${REP}/" ${FILE} > ${FILE}.replaced
-        mv ${FILE}.replaced ${FILE}
+    if grep -Eq "^(${TGT}=|# ${TGT} is not set)" "${FILE}"; then
+        sed -E "s/^(${TGT}=.*|# ${TGT} is not set)/${TGT}=${REP}/" "${FILE}" > "${FILE}.replaced"
+        mv "${FILE}.replaced" "${FILE}"
     else
-        echo "${TGT}=${REP}" >> ${FILE}
+        echo "${TGT}=${VALUE}" >> "${FILE}"
     fi
 }
 
 unset_kernel_config() {
-    # unsets flag with the value of $1, config file as $2
+    # unsets flag as $1 in config file as $2
     local TGT="CONFIG_${1#CONFIG_}"
-    local FILE=${3}
-    sed "s/^${TGT}=.*/# ${TGT} is not set/" ${NEW_CONFIG_FILE} > ${NEW_CONFIG_FILE}.replaced
-    mv ${NEW_CONFIG_FILE}.replaced ${NEW_CONFIG_FILE}
+    local FILE="${2}"
+
+    if grep -Eq "^(${TGT}=|# ${TGT} is not set)" "${FILE}"; then
+        sed -E "s/^(${TGT}=.*|# ${TGT} is not set)/# ${TGT} is not set/" "${FILE}" > "${FILE}.replaced"
+        mv "${FILE}.replaced" "${FILE}"
+    else
+        echo "# ${TGT} is not set" >> "${FILE}"
+    fi
 }
 
 patch_file() {
@@ -58,7 +65,7 @@ patch_file() {
 
 
 # Copy the old config file to the new (overwrite if present), and patch the new one in-place
-cp "${OLD_FILE}" "${NEW_FILE}"
+cp -f "${OLD_FILE}" "${NEW_FILE}"
 # Add an extra newline to the upstream file if it hasn't got it
 # From https://backreference.org/2010/05/23/sanitizing-files-with-no-trailing-newline/
 tail -c1 "${NEW_FILE}" | read -r _ || echo >> "${NEW_FILE}"

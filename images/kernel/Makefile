@@ -39,7 +39,7 @@ upgrade: kernel-builder
 
 build: $(addprefix build-,$(KERNEL_VERSIONS))
 build-%: kernel-builder
-	$(DOCKER) build -t $(IMAGE_NAME):$*-${GOARCH} \
+	$(DOCKER) build --platform $(DOCKER_PLATFORM) -t $(IMAGE_NAME):$*-${GOARCH} \
 		--build-arg KERNEL_VERSION=$* \
 		--build-arg ARCH=${KERNEL_ARCH} \
 		--build-arg GOARCH=${GOARCH} \
