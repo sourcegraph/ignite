@@ -16,17 +16,19 @@ GOARCH_LIST = amd64 # arm64
 ifeq ($(GOARCH),amd64)
 KERNEL_ARCH=x86
 VMLINUX_PATH=vmlinux
+DOCKER_PLATFORM=linux/amd64
 endif
 ifeq ($(GOARCH),arm64)
 ARCH_MAKE_PARAMS="ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
 KERNEL_ARCH=arm64
 VMLINUX_PATH=arch/arm64/boot/Image
+DOCKER_PLATFORM=linux/arm64
 endif
 
 all: build
 
 kernel-builder:
-	$(DOCKER) build --platform linux/$(GOARCH) -t ${KERNEL_BUILDER_NAME}:dev \
+	$(DOCKER) build --platform $(DOCKER_PLATFORM) -t ${KERNEL_BUILDER_NAME}:dev \
 		-f builder/Dockerfile .
 
 upgrade: kernel-builder
