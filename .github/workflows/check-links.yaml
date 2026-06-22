@@ -10,10 +10,10 @@ jobs:
   markdown-link-checker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
 
       # Check top-level markdown files
-      - uses: gaurav-nelson/github-action-markdown-link-check@1.0.12
+      - uses: gaurav-nelson/github-action-markdown-link-check@1.0.17
         with:
           max-depth: '0'
           use-verbose-mode: 'yes'
@@ -25,10 +25,10 @@ jobs:
       matrix:
         python-version: [3.8]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3.1.0
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -43,7 +43,7 @@ jobs:
         # Using liche action to check generated HTML site
       - name: Link Checker (generated site)
         id: lc2
-        uses: peter-evans/link-checker@v1
+        uses: peter-evans/link-checker@v1.2.2
         with:
           args: -d site/ -r site/ -x "(github.com/weaveworks/ignite($|/issue|/pull|/releases|/commit/|/releases)|squidfunk.github.io|ignite.readthedocs.io)"
 

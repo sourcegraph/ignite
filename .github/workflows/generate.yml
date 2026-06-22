@@ -10,8 +10,10 @@ jobs:
     name: Generate assets and check for diff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
       # Run autogeneration and see if there are differences
       - run: make autogen && make tidy-in-docker && make api-docs && git status --short
       # Check so that there weren't any modified files

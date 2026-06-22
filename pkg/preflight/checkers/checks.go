@@ -2,6 +2,7 @@ package checkers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -152,7 +153,7 @@ func runChecks(checks []preflight.Checker, ignoredPreflightErrors sets.String) e
 		}
 	}
 	if errBuffer.Len() > 0 {
-		return fmt.Errorf(errBuffer.String())
+		return errors.New(errBuffer.String())
 	}
 	return nil
 }
