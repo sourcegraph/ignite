@@ -14,7 +14,7 @@ set_kernel_config() {
     local TGT="CONFIG_${1#CONFIG_}"
     local REP="${2//\//\\/}"
     local FILE=${3}
-    
+
     if grep -q "${TGT}" ${FILE}; then
         sed "s/^\(${TGT}=.*\|# ${TGT} is not set\)/${TGT}=${REP}/" ${FILE} > ${FILE}.replaced
         mv ${FILE}.replaced ${FILE}
@@ -36,25 +36,29 @@ patch_file() {
     config_file=$1
     echo "Patching ${config_file}..."
 
-    for line in $(cat ${PATCH_FILE} | grep -v "#"); do
+    while IFS= read -r line; do
+        # Strip comments, including inline comments, and trim whitespace.
+        line="${line%%#*}"
+        line="$(echo "${line}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+        [[ -z "${line}" ]] && continue
+
         # From https://stackoverflow.com/questions/10638538/split-string-with-bash-with-symbol
         config_key=${line%=*}
         config_value=${line#*=}
         echo "    Applying: ${config_key}=${config_value}"
         if [[ ${config_value} == "n" ]]; then
-            unset_kernel_config ${config_key} ${config_file}
+            unset_kernel_config "${config_key}" "${config_file}"
         else
-            set_kernel_config ${config_key} ${config_value} ${config_file}
+            set_kernel_config "${config_key}" "${config_value}" "${config_file}"
         fi
-    done
+    done < "${PATCH_FILE}"
 }
 
 
 # Copy the old config file to the new (overwrite if present), and patch the new one in-place
-cp ${OLD_FILE} ${NEW_FILE}
+cp "${OLD_FILE}" "${NEW_FILE}"
 # Add an extra newline to the upstream file if it hasn't got it
 # From https://backreference.org/2010/05/23/sanitizing-files-with-no-trailing-newline/
 tail -c1 "${NEW_FILE}" | read -r _ || echo >> "${NEW_FILE}"
 # Apply patches to the new file
-patch_file ${NEW_FILE}
-
+patch_file "${NEW_FILE}"
