@@ -27,7 +27,7 @@ cp upstream/config-amd64-6.1.140 upstream/config-amd64-6.18.35
 ```
 
 If Firecracker publishes a newer recommended base config, use that as the seed
-instead.
+instead. See [Firecracker Kernel Policy - Guest Kernels](https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#guest-kernel).
 
 The file name matters. `upgrade-config.sh` extracts the kernel version from the
 trailing field of names like:
@@ -114,11 +114,27 @@ and import it:
 docker tag \
   weaveworks/ignite-kernel:6.18.35-amd64 \
   sourcegraph/ignite-kernel:6.18.35-amd64
+```
 
+On your vm to test the kernel with the executor do:
+
+```bash
+# Install dependencies
+sudo executor install
+# Set the kernel image
+export EXECUTOR_FIRECRACKER_KERNEL_IMAGE=sourcegraph/ignite-kernel:6.18.35-rc.1
+# launch the test-vm
+sudo EXECUTOR_USE_FIRECRACKER=true EXECUTOR_FIRECRACKER_DISK_SPACE=4G executor test-vm
+```
+
+The kernel should already be imported with you launched it via `executor test-vm`, alternatively, you can manually import
+it with:
+
+```bash
 ignite kernel import --runtime docker sourcegraph/ignite-kernel:6.18.35-amd64
 ```
 
-## 6. Launch a Sourcegraph-shaped VM smoke test
+## 6. Manually Launch a Sourcegraph-shaped VM smoke test
 
 Sourcegraph executor runs Docker inside an Ignite Firecracker VM. Match that
 shape when testing:
@@ -145,6 +161,8 @@ ignite run "$VM_IMAGE" \
 ```
 
 ## 7. Validate the running VM
+
+**NOTE:** If you launch the firecracker vm with `executor test-vm`, there will be a `stress-test.sh` script at `/work` which exercises Docker from inside the vm.
 
 Check kernel identity and critical config options:
 
