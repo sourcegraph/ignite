@@ -96,7 +96,7 @@ CONFIG_NET_TEAM_MODE_LOADBALANCE=y
 
 # For making Weave Net work
 CONFIG_DUMMY=y
-# Enable VXLAN support as a module so that e.g. Flannel works
+# Enable built-in VXLAN support so that e.g. Flannel works
 CONFIG_VXLAN=y
 # Enable support for soft shutdown of amd64 VMs
 # See https://github.com/firecracker-microvm/firecracker/blob/main/docs/api_requests/actions.md#sendctrlaltdel
