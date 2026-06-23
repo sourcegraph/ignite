@@ -1,6 +1,6 @@
-FROM ubuntu:18.04 AS builder
+FROM ubuntu:26.04 AS builder
 
-ARG GCC_VERSION="gcc-7"
+ARG GCC_VERSION="gcc-16"
 
 # Install dependencies
 RUN apt-get update -y && \
