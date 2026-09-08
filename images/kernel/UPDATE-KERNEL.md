@@ -9,10 +9,12 @@ Sourcegraph executor Firecracker VMs.
 Update `KERNEL_VERSIONS` in `Makefile`:
 
 ```make
-KERNEL_VERSIONS ?= 5.10.135 6.1.140 6.18.35
+KERNEL_VERSIONS ?= 5.10.135 6.1.187
+KERNEL_SOURCE_COMMIT_6.1.187 = cf82dcca96346600c7068cf3f841335f9fa08f54
 ```
 
-We primarily target amd64, so ensure `GOARCH` is set to `amd64`:
+The Sourcegraph workflow currently publishes amd64 only, so ensure `GOARCH` is
+set to `amd64`:
 
 ```bash
 export GOARCH=amd64
@@ -20,11 +22,18 @@ export GOARCH=amd64
 
 ## 2. Add an upstream seed config
 
-Create an upstream config file for the new version:
+Create an upstream config file for the new version from Firecracker v1.12.0's
+matching 6.1 guest config (or copy the checked-in 6.1 seed before removing its
+old versioned name):
 
 ```bash
-cp upstream/config-amd64-6.1.140 upstream/config-amd64-6.18.35
+cp /path/to/firecracker/resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config \
+  upstream/config-amd64-6.1.187
 ```
+
+For Firecracker v1.12.0, use peeled tag commit
+`15e7490687368f20b572fe045fe377df3df54f32`. Verify the copied amd64 seed has
+SHA-256 `391d8d498f89e56b391be5ea4a7501ebc44e6d094331ecaabdefed1da6b28a96`.
 
 If Firecracker publishes a newer recommended base config, use that as the seed
 instead. See [Firecracker Kernel Policy - Guest Kernels](https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#guest-kernel).
@@ -33,7 +42,7 @@ The file name matters. `upgrade-config.sh` extracts the kernel version from the
 trailing field of names like:
 
 ```text
-upstream/config-amd64-6.18.35
+upstream/config-amd64-6.1.187
 ```
 
 ## 3. Generate the versioned config
@@ -50,35 +59,44 @@ Or generate just one version manually:
 make kernel-builder
 
 ./upgrade-config.sh \
-  upstream/config-amd64-6.18.35 \
-  generated/config-amd64-6.18.35
+  upstream/config-amd64-6.1.187 \
+  generated/config-amd64-6.1.187
 
 ./patch-config.sh \
-  generated/config-amd64-6.18.35 \
-  generated/config-amd64-6.18.35 \
+  generated/config-amd64-6.1.187 \
+  generated/config-amd64-6.1.187 \
   ./config-patches
+
+./upgrade-config.sh \
+  generated/config-amd64-6.1.187 \
+  generated/config-amd64-6.1.187
 ```
 
 The order is important:
 
 1. `upgrade-config.sh` runs Linux `olddefconfig` for the target kernel.
-2. `patch-config.sh` applies Ignite/Sourcegraph-required options last.
+2. `patch-config.sh` applies Ignite/Sourcegraph-required options.
+3. A final `upgrade-config.sh` resolves their Kconfig dependencies.
 
-Applying patches before `olddefconfig` can cause Kconfig to drop forced options
-again.
+Always review and verify the final config: Kconfig may drop requested options
+whose dependencies are not satisfied.
 
 ## 4. Review the generated config
 
-There is intentionally no automated "missing config" gate for every entry in
-`config-patches`.
+The 6.1 release has an automated gate for its required runtime capabilities:
+
+```bash
+make verify-config-6.1.187
+```
 
 Kernel config symbols are not a stable API across supported kernel versions:
 some symbols are renamed, some disappear, and many are silently dropped by
 `olddefconfig` unless their Kconfig dependencies are also satisfied.
 
 Treat `config-patches` as a patch recipe, not as a final-config contract. When a
-new kernel is added, review the generated config for the capabilities the image
-actually needs, then validate those capabilities with a build and smoke test.
+new kernel is added, update the versioned verification target, review the
+generated config for the capabilities the image actually needs, then validate
+those capabilities with a build and smoke test.
 Useful targeted checks include:
 
 ```bash
@@ -98,13 +116,13 @@ rg -n "config IP_NF_NAT|IP_NF_NAT" ../../bin/cache/linux/<version>/net -S
 Build only the new version:
 
 ```bash
-make build-6.18.35
+make build-6.1.187
 ```
 
 This produces:
 
 ```text
-weaveworks/ignite-kernel:6.18.35-amd64
+weaveworks/ignite-kernel:6.1.187-amd64
 ```
 
 If Sourcegraph expects the `sourcegraph/ignite-kernel` repository name, retag
@@ -112,8 +130,8 @@ and import it:
 
 ```bash
 docker tag \
-  weaveworks/ignite-kernel:6.18.35-amd64 \
-  sourcegraph/ignite-kernel:6.18.35-amd64
+  weaveworks/ignite-kernel:6.1.187-amd64 \
+  sourcegraph/ignite-kernel:6.1.187-amd64
 ```
 
 On your vm to test the kernel with the executor do:
@@ -122,7 +140,7 @@ On your vm to test the kernel with the executor do:
 # Install dependencies
 sudo executor install
 # Set the kernel image
-export EXECUTOR_FIRECRACKER_KERNEL_IMAGE=sourcegraph/ignite-kernel:6.18.35-rc.1
+export EXECUTOR_FIRECRACKER_KERNEL_IMAGE=sourcegraph/ignite-kernel:6.1.187
 # launch the test-vm
 sudo EXECUTOR_USE_FIRECRACKER=true EXECUTOR_FIRECRACKER_DISK_SPACE=4G executor test-vm
 ```
@@ -131,7 +149,7 @@ The kernel should already be imported with you launched it via `executor test-vm
 it with:
 
 ```bash
-ignite kernel import --runtime docker sourcegraph/ignite-kernel:6.18.35-amd64
+ignite kernel import --runtime docker sourcegraph/ignite-kernel:6.1.187-amd64
 ```
 
 ## 6. Manually Launch a Sourcegraph-shaped VM smoke test
@@ -140,8 +158,8 @@ Sourcegraph executor runs Docker inside an Ignite Firecracker VM. Match that
 shape when testing:
 
 ```bash
-VM=sg-kernel-61835-smoke
-KERNEL_IMAGE=sourcegraph/ignite-kernel:6.18.35-amd64
+VM=sg-kernel-61187-smoke
+KERNEL_IMAGE=sourcegraph/ignite-kernel:6.1.187-amd64
 VM_IMAGE=sourcegraph/executor-vm:insiders
 SANDBOX_IMAGE=sourcegraph/ignite:v0.10.8
 WORKDIR=$(mktemp -d)

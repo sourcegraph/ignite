@@ -127,6 +127,9 @@ CONFIG_OVERLAY_FS=y
 CONFIG_IKCONFIG=y
 CONFIG_IKCONFIG_PROC=y
 
+# Keep uname and build output independent of the Git checkout state.
+CONFIG_LOCALVERSION_AUTO=n
+
 # Enable support for TCMU, required by most of the storage systems.
 CONFIG_TCM_USER2=m
 
@@ -152,7 +155,7 @@ CONFIG_SERIAL_8250_CONSOLE=y    # Allow console output to ttyS0
 #
 # Filesystem support
 #
-CONFIG_EXT4=y                   # Enables ext4 support for root filesystem
+CONFIG_EXT4_FS=y                # Enables ext4 support for root filesystem
 CONFIG_TMPFS=y                  # Enables tmpfs (used in many init systems)
 CONFIG_PROC_FS=y                # Enables /proc filesystem (useful for monitoring/debugging)
 CONFIG_SYSFS=y                  # Enables /sys filesystem (device introspection)
@@ -183,6 +186,3 @@ CONFIG_BLK_DEV_INITRD=y        # Support for initrd/initramfs if you're using on
 #
 CONFIG_USB_SUPPORT=n           # Disable USB support (Firecracker has no USB devices)
 CONFIG_SND=n                   # Disable sound support
-CONFIG_INPUT=n                 # Disable input subsystem (no keyboard/mouse in Firecracker)
-CONFIG_MODULES=n               # Disable loadable module support (Firecracker expects monolithic kernels)
-CONFIG_ACPI=n                  # Disable ACPI (Firecracker uses Device Tree instead)

@@ -9,7 +9,9 @@ IMAGE_NAME?=${REGISTRY}/ignite-kernel
 KERNEL_BUILDER_NAME=weaveworks/ignite-kernel-builder
 
 # Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates
-KERNEL_VERSIONS ?= 5.10.135 6.1.140 6.18.35 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
+KERNEL_VERSIONS ?= 5.10.135 6.1.187 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
+KERNEL_SOURCE_COMMIT_5.10.135 = 4fd9cb57a3f5e611efde7772643134385de3a5a6
+KERNEL_SOURCE_COMMIT_6.1.187 = cf82dcca96346600c7068cf3f841335f9fa08f54
 GOARCH?=amd64
 GOARCH_LIST = amd64 # arm64
 
@@ -40,13 +42,18 @@ upgrade: kernel-builder
 	done
 
 build: $(addprefix build-,$(KERNEL_VERSIONS))
+build-6.1.187: verify-config-6.1.187
 build-%: kernel-builder
 	$(DOCKER) build --platform $(DOCKER_PLATFORM) -t $(IMAGE_NAME):$*-${GOARCH} \
 		--build-arg KERNEL_VERSION=$* \
+		--build-arg KERNEL_SOURCE_COMMIT=$(KERNEL_SOURCE_COMMIT_$*) \
 		--build-arg ARCH=${KERNEL_ARCH} \
 		--build-arg GOARCH=${GOARCH} \
 		--build-arg ARCH_MAKE_PARAMS=${ARCH_MAKE_PARAMS} \
 		--build-arg VMLINUX_PATH=${VMLINUX_PATH} .
+
+verify-config-6.1.187:
+	./verify-config.sh generated/config-${GOARCH}-6.1.187
 
 push: $(addprefix push-,$(KERNEL_VERSIONS))
 push-%:
