@@ -8,9 +8,9 @@ REGISTRY?=weaveworks
 IMAGE_NAME?=${REGISTRY}/ignite-kernel
 KERNEL_BUILDER_NAME=weaveworks/ignite-kernel-builder
 
-# Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates
-KERNEL_VERSIONS ?= 5.10.135 6.1.187 # If you update this, please keep the .github/workflows/release-kernel-images.yml matrix up to date
-KERNEL_SOURCE_COMMIT_5.10.135 = 4fd9cb57a3f5e611efde7772643134385de3a5a6
+# Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates.
+# The release workflow intentionally publishes only the current 6.1 kernel.
+KERNEL_VERSIONS ?= 6.1.187
 KERNEL_SOURCE_COMMIT_6.1.187 = cf82dcca96346600c7068cf3f841335f9fa08f54
 GOARCH?=amd64
 GOARCH_LIST = amd64 # arm64

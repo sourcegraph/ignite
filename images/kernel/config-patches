@@ -186,3 +186,4 @@ CONFIG_BLK_DEV_INITRD=y        # Support for initrd/initramfs if you're using on
 #
 CONFIG_USB_SUPPORT=n           # Disable USB support (Firecracker has no USB devices)
 CONFIG_SND=n                   # Disable sound support
+CONFIG_MODULES=n               # The scratch kernel image does not contain loadable modules

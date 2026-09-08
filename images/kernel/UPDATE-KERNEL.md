@@ -9,7 +9,7 @@ Sourcegraph executor Firecracker VMs.
 Update `KERNEL_VERSIONS` in `Makefile`:
 
 ```make
-KERNEL_VERSIONS ?= 5.10.135 6.1.187
+KERNEL_VERSIONS ?= 6.1.187
 KERNEL_SOURCE_COMMIT_6.1.187 = cf82dcca96346600c7068cf3f841335f9fa08f54
 ```
 

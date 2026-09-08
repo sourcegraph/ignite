@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [ 5.10.135, 6.1.187 ]
+        version: [ 6.1.187 ]
     env:
       KERNEL_VERSIONS: ${{ matrix.version }}
     steps:

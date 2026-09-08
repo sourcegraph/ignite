@@ -4,12 +4,26 @@ set -euo pipefail
 
 config=${1:?usage: verify-config.sh CONFIG}
 
+# This is an amd64 runtime contract, not a copy of an upstream defconfig:
+# - Firecracker's v1.12.0 x86_64 6.1 guest config supplies the hypervisor baseline.
+# - Ignite's kernel command line and SendCtrlAltDel support require the boot devices.
+# - Sourcegraph executor requires the filesystems, isolation, and networking used by
+#   Docker inside the guest. Keep the rationale alongside each group when adding
+#   symbols; config-patches is the recipe, while this checks the resolved config.
 required=(
-    BPF_SYSCALL BRIDGE CFS_BANDWIDTH CGROUP_BPF DEVTMPFS DEVTMPFS_MOUNT
-    EXT4_FS IKCONFIG IKCONFIG_PROC INPUT_KEYBOARD KEYBOARD_ATKBD MEMCG
-    OVERLAY_FS PCI PROC_FS SECCOMP SECCOMP_FILTER SERIAL_8250
-    SERIAL_8250_CONSOLE SYSFS TMPFS USER_NS VETH VIRTIO_BLK VIRTIO_MMIO
-    VIRTIO_MMIO_CMDLINE_DEVICES VIRTIO_NET WIREGUARD VXLAN
+    # Firecracker x86_64 boot and virtio devices.
+    ACPI KVM_GUEST VIRTIO_BLK VIRTIO_MMIO VIRTIO_MMIO_CMDLINE_DEVICES VIRTIO_NET
+    DEVTMPFS DEVTMPFS_MOUNT EXT4_FS SERIAL_8250 SERIAL_8250_CONSOLE
+
+    # Ignite soft shutdown through Firecracker's SendCtrlAltDel action.
+    INPUT_KEYBOARD KEYBOARD_ATKBD SERIO_I8042
+
+    # Guest userspace and Sourcegraph executor's nested Docker workloads.
+    PROC_FS SYSFS TMPFS BRIDGE VETH OVERLAY_FS CFS_BANDWIDTH MEMCG USER_NS
+    BPF_SYSCALL CGROUP_BPF SECCOMP SECCOMP_FILTER WIREGUARD VXLAN
+
+    # Make the resolved config inspectable from inside a running guest.
+    IKCONFIG IKCONFIG_PROC
 )
 
 for symbol in "${required[@]}"; do
