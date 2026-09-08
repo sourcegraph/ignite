@@ -64,8 +64,10 @@ patch_file() {
 }
 
 
-# Copy the old config file to the new (overwrite if present), and patch the new one in-place
-cp -f "${OLD_FILE}" "${NEW_FILE}"
+# Copy the old config file unless the caller is patching it in place.
+if [[ "$(realpath "${OLD_FILE}")" != "$(realpath "${NEW_FILE}")" ]]; then
+    cp -f "${OLD_FILE}" "${NEW_FILE}"
+fi
 # Add an extra newline to the upstream file if it hasn't got it
 # From https://backreference.org/2010/05/23/sanitizing-files-with-no-trailing-newline/
 tail -c1 "${NEW_FILE}" | read -r _ || echo >> "${NEW_FILE}"
