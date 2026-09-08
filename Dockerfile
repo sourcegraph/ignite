@@ -8,13 +8,17 @@ COPY qemu-QEMUARCH-static /usr/bin/
 RUN apk add --no-cache \
     device-mapper
 
-# Download the Firecracker binary from Github
+# Download the Firecracker binary from GitHub and verify it against the pinned checksum.
 ARG FIRECRACKER_VERSION
 # If amd64 is set, this is "-x86_64". If arm64, this should be "-aarch64".
 ARG FIRECRACKER_ARCH_SUFFIX
-RUN wget -qO- https://github.com/firecracker-microvm/firecracker/releases/download/${FIRECRACKER_VERSION}/firecracker-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}.tgz | tar -xvz && \
+ARG FIRECRACKER_SHA256
+RUN archive="firecracker-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}.tgz" && \
+    wget -q "https://github.com/firecracker-microvm/firecracker/releases/download/${FIRECRACKER_VERSION}/${archive}" && \
+    echo "${FIRECRACKER_SHA256}  ${archive}" | sha256sum -c - && \
+    tar -xvz -f "${archive}" && \
     mv release-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}/firecracker-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX} /usr/local/bin/firecracker && \
-    rm -r release-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}
+    rm -r "${archive}" release-${FIRECRACKER_VERSION}${FIRECRACKER_ARCH_SUFFIX}
 
 # Add ignite-spawn to the image
 ADD ./ignite-spawn /usr/local/bin/ignite-spawn

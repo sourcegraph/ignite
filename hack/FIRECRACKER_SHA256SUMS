@@ -1,0 +1,3 @@
+# From the .sha256.txt assets attached to the corresponding upstream Firecracker release.
+382a02a869e4d6d5cb14c40577f9545e8458021ea8b0b2d3fc10ec14d9c242e6  firecracker-v1.16.1-x86_64.tgz
+8d0e69f6d6f9a1724551f607f18504052c16c1828ee3d4d7b6e6c73380871e0e  firecracker-v1.16.1-aarch64.tgz
