@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -61,7 +62,7 @@ func ExecuteFirecracker(vm *api.VM, fcIfaces firecracker.NetworkInterfaces) (err
 		MachineCfg: models.MachineConfiguration{
 			VcpuCount:  &vCPUCount,
 			MemSizeMib: &memSizeMib,
-			Smt:        firecracker.Bool(true),
+			Smt:        firecracker.Bool(runtime.GOARCH == "amd64"),
 		},
 		//JailerCfg: firecracker.JailerConfig{
 		//	GID:      firecracker.Int(0),
