@@ -10,8 +10,8 @@ KERNEL_BUILDER_NAME=weaveworks/ignite-kernel-builder
 
 # Check https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/refs/ for updates.
 # The release workflow intentionally publishes only the current 6.1 kernel.
-KERNEL_VERSIONS ?= 6.1.187
-KERNEL_SOURCE_COMMIT_6.1.187 = cf82dcca96346600c7068cf3f841335f9fa08f54
+KERNEL_VERSIONS ?= 6.1.190
+KERNEL_SOURCE_COMMIT_6.1.190 = 79807e970724c1f90cee1316361d61b80db4eef6
 GOARCH?=amd64
 GOARCH_LIST = amd64 # arm64
 
@@ -42,7 +42,7 @@ upgrade: kernel-builder
 	done
 
 build: $(addprefix build-,$(KERNEL_VERSIONS))
-build-6.1.187: verify-config-6.1.187
+build-6.1.190: verify-config-6.1.190
 build-%: kernel-builder
 	$(DOCKER) build --platform $(DOCKER_PLATFORM) -t $(IMAGE_NAME):$*-${GOARCH} \
 		--build-arg KERNEL_VERSION=$* \
@@ -52,8 +52,8 @@ build-%: kernel-builder
 		--build-arg ARCH_MAKE_PARAMS=${ARCH_MAKE_PARAMS} \
 		--build-arg VMLINUX_PATH=${VMLINUX_PATH} .
 
-verify-config-6.1.187:
-	./verify-config.sh generated/config-${GOARCH}-6.1.187
+verify-config-6.1.190:
+	./verify-config.sh generated/config-${GOARCH}-6.1.190
 
 push: $(addprefix push-,$(KERNEL_VERSIONS))
 push-%:
